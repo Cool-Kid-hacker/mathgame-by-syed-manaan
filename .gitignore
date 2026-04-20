@@ -1,0 +1,11 @@
+Flask/
+*.deb
+*.tgz
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+.DS_Store
+.vscode/
+node_modules/
