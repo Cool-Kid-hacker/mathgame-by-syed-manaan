@@ -1,0 +1,1687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Car Racing Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            background-color: #333;
+            font-family: Arial, sans-serif;
+            padding: 0.5cm;
+            overflow: hidden; /* Prevent all scrolling */
+        }
+        .game-container {
+            position: relative;
+            background-color: #222;
+            padding: 0.3cm;
+            border-radius: 8px;
+            transform: scale(0.85);
+            transform-origin: top center;
+        }
+        canvas {
+            border: 2px solid #666;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const width = 1000;
+        const height = 800;
+        canvas.width = width;
+        canvas.height = height;
+
+        // Colors
+        const colors = {
+            white: '#FFFFFF',
+            black: '#000000',
+            gray: '#A9A9A9',
+            green: '#00FF00',
+            blue: '#0000FF',
+            pink: '#FF69B4',
+            yellow: '#FFFF00',
+            orange: '#FFA500',
+            red: '#FF0000',
+            explosionColor: '#FF4500',
+            roadColor: '#282828',
+            roadStripeColor: '#646464',
+            centerLineColor: '#DCDCDC',
+            skyColor: '#22784'
+        };
+
+        // Game state
+        let gameState = 'start'; // start, serverCode, userSelect, carSelect, textInput, editUser, settings, serverManager, countdown, playing, gameOver, endSession
+        let currentScreen = 'start';
+        let currentUser = null;
+        let playerColor = null;
+        let highestScore = 0;
+        let score = 0;
+        let laneOffset = 0;
+        let particles = [];
+        let enemies = [];
+        let currentEnemySpeed = 7;
+        let countdownNumber = 3;
+        let countdownTimer = 0;
+        let textInput = '';
+        let cursorVisible = true;
+        let cursorTimer = 0;
+        let editingUser = null;
+        let editNewName = '';
+        let editNewColor = null;
+        let editingUserName = false; // Track if user is editing name inline
+        let mouseX = 0;
+        let mouseY = 0;
+        let mouseClicked = false;
+        let keys = {};
+        let highScorePopup = null; // { message: string, type: 'personal' | 'system' }
+        let showingHighScoreLine = false; // Track if we're showing the high score line
+        let showingSystemHighScoreLine = false; // Track if showing system high score line
+        let scoreBlinkTimer = 0; // Timer for blinking score
+        let scoreBlinkVisible = true; // Track if score is visible during blink
+        let highScoreBlinkTimer = 0; // Timer for blinking high score
+        let highScoreBlinkVisible = true; // Track if high score is visible during blink
+        let systemHighScoreBlinkTimer = 0; // Timer for system high score blinking
+        let systemHighScoreBlinkVisible = true; // Track if system high score is visible
+        let displayHighScore = 0; // For counting up animation
+        let displaySystemHighScore = 0; // For system high score counting up animation
+        let serverCodeError = ''; // Error message for server code screen
+
+        // Player settings
+        const playerWidth = 50;
+        const playerHeight = 80;
+        const playerSpeed = 5;
+        let playerX = 0;
+        let playerY = 0;
+
+        // Enemy settings
+        const enemyWidth = 50;
+        const enemyHeight = 80;
+        const baseEnemySpeed = 7;
+        const numEnemies = 7;
+
+        // Users storage (using localStorage)
+        let users = {};
+        
+        // Server management
+        let currentServer = 'default';
+        let servers = {};
+        let isOwnerMode = false;
+        let ownerPassword = '251807'; // Default password - should be changed
+        
+        // Initialize servers
+        function initServers() {
+            const storedServers = localStorage.getItem('carGameServers');
+            if (storedServers) {
+                try {
+                    servers = JSON.parse(storedServers);
+                    // Ensure default server exists
+                    if (!servers.default) {
+                        servers.default = { users: {}, name: 'Default Server' };
+                    }
+                } catch (e) {
+                    servers = { default: { users: {}, name: 'Default Server' } };
+                }
+            } else {
+                servers = { default: { users: {}, name: 'Default Server' } };
+            }
+            
+            // Load current server
+            const storedCurrentServer = localStorage.getItem('carGameCurrentServer');
+            if (storedCurrentServer && servers[storedCurrentServer]) {
+                currentServer = storedCurrentServer;
+            } else {
+                currentServer = 'default';
+            }
+            
+            // Load users for current server
+            users = servers[currentServer].users || {};
+        }
+        
+        // Save servers
+        function saveServers() {
+            localStorage.setItem('carGameServers', JSON.stringify(servers));
+            localStorage.setItem('carGameCurrentServer', currentServer);
+        }
+        
+        // Switch server
+        function switchServer(serverKey) {
+            if (servers[serverKey]) {
+                currentServer = serverKey;
+                users = servers[currentServer].users || {};
+                saveServers();
+            }
+        }
+        
+        // Add new server
+        function addServer(serverName) {
+            const serverKey = serverName.toLowerCase().replace(/\s+/g, '_');
+            if (!servers[serverKey]) {
+                servers[serverKey] = { 
+                    users: {}, 
+                    name: serverName,
+                    created: new Date().toISOString()
+                };
+                saveServers();
+                return true;
+            }
+            return false;
+        }
+        
+        // Delete server
+        function deleteServer(serverKey) {
+            if (servers[serverKey] && serverKey !== 'default') {
+                delete servers[serverKey];
+                if (currentServer === serverKey) {
+                    currentServer = 'default';
+                    users = servers.default.users;
+                }
+                saveServers();
+                return true;
+            }
+            return false;
+        }
+
+        // Load users from localStorage
+        function loadUsers() {
+            const stored = localStorage.getItem('carGameUsers');
+            if (stored) {
+                try {
+                    users = JSON.parse(stored);
+                    // Convert old format if needed
+                    for (let name in users) {
+                        if (typeof users[name] === 'number') {
+                            users[name] = { score: users[name], color: colors.blue };
+                        } else if (users[name] && !users[name].color) {
+                            users[name].color = colors.blue;
+                        }
+                    }
+                } catch (e) {
+                    users = {};
+                }
+            }
+        }
+
+        // Save users to localStorage
+        function saveUsers() {
+            localStorage.setItem('carGameUsers', JSON.stringify(users));
+        }
+
+        // Initialize servers and users
+        initServers();
+
+        // Math question system
+        let mathQuestionData = null;
+        let mathQuestionState = 'none'; // 'none', 'showing', 'answered'
+        let nextQuestionScore = 25; // Score at which to show next question
+        let questionIndex = 0; // Track which question to show next
+        let selectedWrongChoice = null; // Track wrong choice for retry feedback
+
+        // Predefined math questions
+        const mathQuestions = [
+            {
+                question: "What is 2/3 × 4/5?",
+                correct: "8/15",
+                choices: ["8/15", "2/5", "4/7", "3/8"]
+            },
+            {
+                question: "What is 5/1 × 5/8?",
+                correct: "25/8",
+                choices: ["25/8", "5/4", "10/3", "15/7"]
+            },
+            {
+                question: "What is 1/3 × 1/2?",
+                correct: "1/6",
+                choices: ["1/6", "1/4", "2/5", "3/7"]
+            },
+            {
+                question: "What is 5/6 × 1/7?",
+                correct: "5/42",
+                choices: ["5/42", "1/6", "5/12", "2/9"]
+            },
+            {
+                question: "What is 4/10 × 3/8?",
+                correct: "12/80",
+                choices: ["12/80", "3/5", "4/9", "6/11"]
+            },
+            {
+                question: "What is 1/2 × 1/4?",
+                correct: "1/8",
+                choices: ["1/8", "1/3", "2/7", "3/10"]
+            },
+            {
+                question: "What is 3/7 × 4/9?",
+                correct: "12/63",
+                choices: ["12/63", "4/7", "3/9", "7/12"]
+            },
+            {
+                question: "What is 3/9 × 1/10?",
+                correct: "3/90",
+                choices: ["3/90", "1/3", "3/7", "2/11"]
+            },
+            {
+                question: "What is 9/12 × 2/7?",
+                correct: "18/84",
+                choices: ["18/84", "3/7", "9/14", "4/9"]
+            }
+        ];
+
+        // Generate math question from predefined list
+        function generateFractionQuestion() {
+            // Get the next question in rotation
+            const questionData = mathQuestions[questionIndex];
+            questionIndex = (questionIndex + 1) % mathQuestions.length;
+            
+            return questionData;
+        }
+
+        // Draw math question screen
+        function drawMathQuestionScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            
+            // Question text
+            showText(mathQuestionData.question, colors.black, width / 2 - 200, height / 4, 40);
+            
+            // Choices (2x2 grid)
+            const choiceButtons = [];
+            const choiceY = height / 2;
+            for (let i = 0; i < 4; i++) {
+                const row = Math.floor(i / 2);
+                const col = i % 2;
+                const x = width / 4 + col * (width / 2 + 20);
+                const y = choiceY + row * 100;
+                
+                // Draw choice button
+                const buttonRect = { x: x, y: y, w: 200, h: 60 };
+                ctx.fillStyle = colors.white;
+                ctx.fillRect(x, y, 200, 60);
+                ctx.strokeStyle = colors.black;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, 200, 60);
+                
+                // Choice text
+                showText(mathQuestionData.choices[i], colors.black, x + 20, y + 20, 30);
+                choiceButtons.push({ rect: buttonRect, choice: mathQuestionData.choices[i] });
+            }
+            
+            // Show X on wrong choice if one was selected
+            if (selectedWrongChoice) {
+                for (const button of choiceButtons) {
+                    if (button.choice === selectedWrongChoice) {
+                        // Draw X on wrong choice
+                        ctx.strokeStyle = colors.red;
+                        ctx.lineWidth = 5;
+                        ctx.beginPath();
+                        ctx.moveTo(button.rect.x + 20, button.rect.y + 20);
+                        ctx.lineTo(button.rect.x + button.rect.w - 20, button.rect.y + button.rect.h - 20);
+                        ctx.moveTo(button.rect.x + button.rect.w - 20, button.rect.y + 20);
+                        ctx.lineTo(button.rect.x + 20, button.rect.y + button.rect.h - 20);
+                        ctx.stroke();
+                        break;
+                    }
+                }
+            }
+            
+            return choiceButtons;
+        }
+
+        // Show wrong answer feedback
+        function showWrongAnswerFeedback(choiceButtons, selectedChoice, correctChoice) {
+            // Find the selected button and draw X
+            for (const button of choiceButtons) {
+                if (button.choice === selectedChoice) {
+                    // Draw X on wrong choice
+                    ctx.strokeStyle = colors.red;
+                    ctx.lineWidth = 5;
+                    ctx.beginPath();
+                    ctx.moveTo(button.rect.x + 20, button.rect.y + 20);
+                    ctx.lineTo(button.rect.x + button.rect.w - 20, button.rect.y + button.rect.h - 20);
+                    ctx.moveTo(button.rect.x + button.rect.w - 20, button.rect.y + 20);
+                    ctx.lineTo(button.rect.x + 20, button.rect.y + button.rect.h - 20);
+                    ctx.stroke();
+                }
+                
+                // Highlight correct answer in green
+                if (button.choice === correctChoice) {
+                    ctx.strokeStyle = colors.green;
+                    ctx.lineWidth = 4;
+                    ctx.strokeRect(button.rect.x, button.rect.y, button.rect.w, button.rect.h);
+                }
+            }
+            
+            ctx.globalAlpha = 1;
+        }
+
+        // Color options for editing
+        const colorOptions = [
+            { color: colors.red, fontColor: colors.white, name: 'Red' },
+            { color: colors.orange, fontColor: colors.black, name: 'Orange' },
+            { color: colors.yellow, fontColor: colors.black, name: 'Yellow' },
+            { color: colors.green, fontColor: colors.white, name: 'Green' },
+            { color: colors.blue, fontColor: colors.white, name: 'Blue' },
+            { color: '#800080', fontColor: colors.white, name: 'Purple' },
+            { color: colors.pink, fontColor: colors.black, name: 'Pink' },
+            { color: '#964B00', fontColor: colors.white, name: 'Brown' },
+            { color: '#FFD700', fontColor: colors.white, name: 'Golden' },
+            { color: '#C0C0C0', fontColor: colors.black, name: 'Silver' },
+            { color: colors.black, fontColor: colors.white, name: 'Black' },
+            { color: colors.white, fontColor: colors.black, name: 'White' }
+        ];
+
+        // Car selection options
+        const carSelectionOptions = [
+            { color: colors.blue, name: 'Blue' },
+            { color: colors.pink, name: 'Pink' },
+            { color: colors.yellow, name: 'Yellow' },
+            { color: colors.orange, name: 'Orange' }
+        ];
+
+        // Draw car function
+        function drawCar(x, y, color, w, h, isEnemy = false) {
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath();
+            ctx.ellipse(x + w/2, y + h - h * 0.07, w/2 + 5, h * 0.07, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Body
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, Math.max(4, w * 0.12));
+            ctx.fill();
+
+            // Windshield
+            ctx.fillStyle = '#C8E6FF';
+            ctx.beginPath();
+            ctx.roundRect(x + w/6, y + h/8, w * 2/3, h/3, Math.max(2, w * 0.06));
+            ctx.fill();
+
+            // Wheels
+            const wheelR = Math.max(4, Math.min(w, h) * 0.12);
+            ctx.fillStyle = '#141414';
+            ctx.beginPath();
+            ctx.arc(x + w * 0.22, y + h - wheelR/2, wheelR, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(x + w * 0.78, y + h - wheelR/2, wheelR, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Roof highlight
+            ctx.strokeStyle = colors.white;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x + Math.max(4, w * 0.12), y + Math.max(4, h * 0.08));
+            ctx.lineTo(x + w - Math.max(4, w * 0.12), y + Math.max(4, h * 0.08));
+            ctx.stroke();
+
+            // Headlights for enemy
+            if (isEnemy) {
+                const hlR = Math.max(3, Math.min(w, h) * 0.08);
+                ctx.fillStyle = '#FFFFC8';
+                ctx.beginPath();
+                ctx.arc(x + w * 0.16, y + h * 0.15, hlR, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(x + w * 0.84, y + h * 0.15, hlR, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // Show text function
+        function showText(msg, color, x, y, fontSize = 40) {
+            ctx.font = `${fontSize}px Arial`;
+            ctx.fillStyle = color;
+            ctx.textBaseline = 'top';
+            ctx.fillText(msg, x, y);
+        }
+
+        // Draw button helper
+        function drawButton(x, y, w, h, color, text, textColor = colors.black, fontSize = 40) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, w, h);
+            showText(text, textColor, x + 10, y + 10, fontSize);
+            return { x, y, w, h };
+        }
+
+        // Check if point is in rectangle
+        function pointInRect(px, py, rect) {
+            return px >= rect.x && px <= rect.x + rect.w && py >= rect.y && py <= rect.y + rect.h;
+        }
+
+        // Reset enemies
+        function resetEnemies() {
+            enemies = [];
+            for (let i = 0; i < numEnemies; i++) {
+                enemies.push({
+                    x: Math.random() * (width - enemyWidth),
+                    y: Math.random() * -800 - 100,
+                    swerve: Math.random() < 0.5 ? -2 : 2
+                });
+            }
+        }
+
+        // Explosion effect (simplified for browser)
+        let explosionParticles = [];
+        function createExplosion(x, y) {
+            for (let i = 0; i < 30; i++) {
+                explosionParticles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 10,
+                    vy: (Math.random() - 0.5) * 10,
+                    life: 30 + Math.random() * 20,
+                    maxLife: 50,
+                    radius: 3 + Math.random() * 5,
+                    color: colors.explosionColor
+                });
+            }
+        }
+
+        // Update explosion particles
+        function updateExplosions() {
+            for (let i = explosionParticles.length - 1; i >= 0; i--) {
+                const p = explosionParticles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life--;
+                p.radius *= 0.98;
+                if (p.life <= 0) {
+                    explosionParticles.splice(i, 1);
+                }
+            }
+        }
+
+        // Draw explosion particles
+        function drawExplosions() {
+            for (const p of explosionParticles) {
+                const alpha = p.life / p.maxLife;
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // Draw high score popup notification
+        function drawHighScorePopup() {
+            if (!highScorePopup) return;
+
+            // Popup dimensions
+            const popupW = 500;
+            const popupH = 150;
+            const popupX = (width - popupW) / 2;
+            const popupY = (height - popupH) / 2;
+
+            // Semi-transparent overlay
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, width, height);
+
+            // Popup background
+            ctx.fillStyle = highScorePopup.type === 'system' ? '#FFD700' : '#4CAF50';
+            ctx.beginPath();
+            ctx.roundRect(popupX, popupY, popupW, popupH, 15);
+            ctx.fill();
+
+            // Popup border
+            ctx.strokeStyle = colors.white;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.roundRect(popupX, popupY, popupW, popupH, 15);
+            ctx.stroke();
+
+            // Message text
+            ctx.font = 'bold 28px Arial';
+            ctx.fillStyle = colors.black;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const textLines = wrapText(highScorePopup.message, popupW - 40);
+            let lineY = popupY + 40;
+            for (const line of textLines) {
+                ctx.fillText(line, width / 2, lineY);
+                lineY += 35;
+            }
+
+            // OK button
+            const okBtnW = 120;
+            const okBtnH = 45;
+            const okBtnX = (width - okBtnW) / 2;
+            const okBtnY = popupY + popupH - 60;
+            ctx.fillStyle = colors.white;
+            ctx.beginPath();
+            ctx.roundRect(okBtnX, okBtnY, okBtnW, okBtnH, 8);
+            ctx.fill();
+            ctx.font = 'bold 24px Arial';
+            ctx.fillStyle = colors.black;
+            ctx.fillText('OK!', width / 2, okBtnY + okBtnH / 2);
+
+            // Reset text alignment
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+        }
+
+        // Helper function to wrap text
+        function wrapText(text, maxWidth) {
+            const words = text.split(' ');
+            const lines = [];
+            let currentLine = '';
+
+            for (const word of words) {
+                const testLine = currentLine + (currentLine ? ' ' : '') + word;
+                const metrics = ctx.measureText(testLine);
+                if (metrics.width > maxWidth && currentLine) {
+                    lines.push(currentLine);
+                    currentLine = word;
+                } else {
+                    currentLine = testLine;
+                }
+            }
+            if (currentLine) {
+                lines.push(currentLine);
+            }
+            return lines;
+        }
+
+        // Server Code Entry Screen
+        function drawServerCodeScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            
+            // Title
+            showText('Join a Server', colors.black, width / 3, height / 4, 60);
+            showText('Enter Server Code:', colors.black, width / 4, height / 3, 40);
+            
+            // Input box
+            const inputX = width / 4;
+            const inputY = height / 2;
+            const inputW = 400;
+            const inputH = 50;
+            
+            ctx.fillStyle = colors.white;
+            ctx.fillRect(inputX, inputY, inputW, inputH);
+            ctx.strokeStyle = colors.black;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(inputX, inputY, inputW, inputH);
+            
+            // Display current input
+            ctx.font = '30px Arial';
+            ctx.fillStyle = colors.black;
+            ctx.textBaseline = 'top';
+            ctx.fillText(textInput, inputX + 10, inputY + 10);
+            
+            // Blinking cursor
+            if (cursorVisible) {
+                const textWidth = ctx.measureText(textInput).width;
+                const cursorX = inputX + 10 + textWidth;
+                ctx.strokeStyle = colors.black;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(cursorX, inputY + 10);
+                ctx.lineTo(cursorX, inputY + inputH - 10);
+                ctx.stroke();
+            }
+            
+            // Error message
+            if (serverCodeError) {
+                ctx.fillStyle = colors.red;
+                ctx.font = '20px Arial';
+                ctx.fillText(serverCodeError, width / 4, height / 2 + 70);
+            }
+            
+            // Instructions
+            showText('Enter a server code to join a group of players', colors.black, width / 4, height / 2 + 90, 20);
+            
+            // Buttons
+            const joinRect = drawButton(width / 4, height / 2 + 150, 150, 50, colors.green, 'Join Server');
+            const backRect = drawButton(width / 4 + 170, height / 2 + 150, 100, 50, colors.red, 'Back');
+            
+            if (mouseClicked) {
+                if (pointInRect(mouseX, mouseY, joinRect)) {
+                    const serverCode = textInput.trim().toLowerCase().replace(/\s+/g, '_');
+                    
+                    // If empty, use default server
+                    if (!serverCode) {
+                        switchServer('default');
+                        serverCodeError = '';
+                        gameState = 'userSelect';
+                    } else {
+                        // Check if server exists
+                        if (servers[serverCode]) {
+                            switchServer(serverCode);
+                            serverCodeError = '';
+                            gameState = 'userSelect';
+                        } else {
+                            // Server doesn't exist - show error
+                            serverCodeError = 'Server name invalid. Please try again.';
+                            textInput = ''; // Clear input for retry
+                        }
+                    }
+                } else if (pointInRect(mouseX, mouseY, backRect)) {
+                    serverCodeError = '';
+                    textInput = '';
+                    gameState = 'start';
+                }
+            }
+        }
+
+        // Start Game Screen
+        function drawStartScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            // Center the title text
+            const titleText = 'Dodge The Cars!';
+            ctx.font = '100px Arial';
+            const titleWidth = ctx.measureText(titleText).width;
+            const titleX = (width - titleWidth) / 2;
+            showText(titleText, colors.black, titleX, height / 3, 100);
+            drawButton(width / 3, height / 3 + 200, 300, 50, colors.green, 'Start Game');
+        }
+
+        // User Selection Screen
+        function drawUserSelectionScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            showText('Select User', colors.black, width / 3, height / 4, 60);
+
+            let buttonY = height / 3;
+            const userButtons = [];
+
+            for (let user in users) {
+                const userData = users[user];
+                const userColor = userData.color || colors.blue;
+                const userRgb = userColor;
+                const fontColor = [colors.orange, colors.yellow, colors.pink, colors.green, '#C0C0C0', colors.white].includes(userRgb) ? colors.black : colors.white;
+
+                const userRect = drawButton(width / 3, buttonY, 250, 50, userColor, user, fontColor);
+                userButtons.push({ rect: userRect, action: user });
+
+                const editRect = drawButton(width / 3 + 260, buttonY, 80, 50, '#969696', 'Edit');
+                userButtons.push({ rect: editRect, action: 'edit_' + user });
+
+                buttonY += 60;
+            }
+
+            const addRect = drawButton(width / 3, buttonY, 300, 50, colors.green, 'Add User');
+            userButtons.push({ rect: addRect, action: 'add' });
+
+            // Settings button (FOR OWNER ONLY) - bottom left
+            const settingsRect = drawButton(20, height - 70, 250, 50, colors.red, 'Settings (FOR OWNER ONLY)', colors.white, 24);
+            userButtons.push({ rect: settingsRect, action: 'settings' });
+
+            // Show current server info
+            showText(`Current Server: ${servers[currentServer].name}`, colors.white, width - 350, height - 60, 20);
+            showText(`Users in this server: ${Object.keys(users).length}`, colors.white, width - 350, height - 30, 20);
+
+            // Handle clicks
+            if (mouseClicked) {
+                for (const btn of userButtons) {
+                    if (pointInRect(mouseX, mouseY, btn.rect)) {
+                        if (btn.action === 'add') {
+                            gameState = 'textInput';
+                            textInput = '';
+                            editingUser = null;
+                        } else if (btn.action.startsWith('edit_')) {
+                            editingUser = btn.action.substring(5);
+                            editNewName = editingUser;
+                            editNewColor = users[editingUser].color;
+                            gameState = 'editUser';
+                        } else if (btn.action === 'settings') {
+                            gameState = 'settings';
+                            textInput = '';
+                            cursorVisible = true;
+                            cursorTimer = 0;
+                        } else {
+                            currentUser = btn.action;
+                            highestScore = users[currentUser].score || 0;
+                            gameState = 'carSelect';
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Text Input Screen
+        function drawTextInputScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            showText('Enter Username:', colors.black, width / 4, height / 3, 50);
+            showText(textInput, colors.black, width / 4, height / 2, 40);
+
+            // Blinking cursor
+            if (cursorVisible) {
+                const textWidth = ctx.measureText(textInput).width;
+                const cursorX = width / 4 + textWidth;
+                ctx.strokeStyle = colors.black;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(cursorX, height / 2);
+                ctx.lineTo(cursorX, height / 2 + 40);
+                ctx.stroke();
+            }
+
+            showText('Type and click Enter or press Enter key', colors.black, width / 4, height / 2 + 60, 20);
+
+            const backRect = drawButton(width / 4, height / 2 + 100, 100, 50, colors.red, 'Back');
+            const enterRect = drawButton(width / 4 + 120, height / 2 + 100, 100, 50, colors.green, 'Enter');
+
+            if (mouseClicked) {
+                if (pointInRect(mouseX, mouseY, backRect)) {
+                    gameState = 'userSelect';
+                } else if (pointInRect(mouseX, mouseY, enterRect) && textInput.trim()) {
+                    if (editingUser) {
+                        // This will be handled by editUser screen
+                        editNewName = textInput.trim();
+                        gameState = 'editUser';
+                    } else {
+                        if (!users[textInput.trim()]) {
+                            users[textInput.trim()] = { score: 0, color: colors.blue };
+                            saveUsers();
+                            currentUser = textInput.trim();
+                            highestScore = 0;
+                            gameState = 'carSelect';
+                        }
+                    }
+                }
+            }
+        }
+
+        // Password verification screen for owner access
+        function drawPasswordScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            showText('Enter Owner Password:', colors.black, width / 4, height / 3, 50);
+            showText(textInput, colors.black, width / 4, height / 2, 40);
+
+            // Blinking cursor
+            if (cursorVisible) {
+                const textWidth = ctx.measureText(textInput).width;
+                const cursorX = width / 4 + textWidth;
+                ctx.strokeStyle = colors.black;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(cursorX, height / 2);
+                ctx.lineTo(cursorX, height / 2 + 40);
+                ctx.stroke();
+            }
+
+            showText('Enter password to access server management', colors.black, width / 4, height / 2 + 60, 20);
+
+            const backRect = drawButton(width / 4, height / 2 + 100, 100, 50, colors.red, 'Back');
+            const enterRect = drawButton(width / 4 + 120, height / 2 + 100, 100, 50, colors.green, 'Enter');
+
+            if (mouseClicked) {
+                if (pointInRect(mouseX, mouseY, backRect)) {
+                    gameState = 'userSelect';
+                } else if (pointInRect(mouseX, mouseY, enterRect) && textInput.trim()) {
+                    if (textInput.trim() === ownerPassword) {
+                        isOwnerMode = true;
+                        gameState = 'serverManager';
+                    } else {
+                        alert('Incorrect password!');
+                        textInput = '';
+                    }
+                }
+            }
+        }
+
+        // Server Manager Screen (Owner Only)
+        function drawServerManagerScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            showText('Server Manager (Owner Only)', colors.black, width / 3, height / 4, 50);
+
+            let buttonY = height / 3;
+            const buttons = [];
+
+            // List all servers
+            for (let serverKey in servers) {
+                const server = servers[serverKey];
+                const userCount = Object.keys(server.users || {}).length;
+                const isCurrent = serverKey === currentServer;
+                const serverName = server.name || serverKey;
+                
+                // Server button
+                const serverColor = isCurrent ? colors.green : colors.blue;
+                const serverText = `${serverName} (${userCount} users)`;
+                const serverRect = drawButton(width / 4, buttonY, 350, 50, serverColor, serverText);
+                buttons.push({ rect: serverRect, action: 'switch_' + serverKey });
+
+                // Delete button (only for non-default servers)
+                if (serverKey !== 'default') {
+                    const deleteRect = drawButton(width / 4 + 360, buttonY, 100, 50, colors.red, 'Delete');
+                    buttons.push({ rect: deleteRect, action: 'delete_' + serverKey });
+                }
+
+                buttonY += 60;
+            }
+
+            // Add new server button
+            const addRect = drawButton(width / 4, buttonY, 300, 50, colors.green, 'Add New Server');
+            buttons.push({ rect: addRect, action: 'add' });
+
+            // Back button
+            const backRect = drawButton(width / 4, buttonY + 70, 200, 50, colors.red, 'Back');
+            buttons.push({ rect: backRect, action: 'back' });
+
+            // Handle clicks
+            if (mouseClicked) {
+                for (const btn of buttons) {
+                    if (pointInRect(mouseX, mouseY, btn.rect)) {
+                        if (btn.action === 'back') {
+                            gameState = 'userSelect';
+                        } else if (btn.action === 'add') {
+                            // Prompt for new server name
+                            const serverName = prompt('Enter new server name:');
+                            if (serverName && serverName.trim()) {
+                                if (addServer(serverName.trim())) {
+                                    alert('Server created successfully!');
+                                } else {
+                                    alert('Server already exists!');
+                                }
+                            }
+                        } else if (btn.action.startsWith('switch_')) {
+                            const serverKey = btn.action.substring(7);
+                            switchServer(serverKey);
+                        } else if (btn.action.startsWith('delete_')) {
+                            const serverKey = btn.action.substring(7);
+                            if (confirm(`Are you sure you want to delete "${servers[serverKey].name}"?`)) {
+                                if (deleteServer(serverKey)) {
+                                    alert('Server deleted successfully!');
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Edit User Screen
+        function drawEditUserScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            showText(`Editing ${editingUser}`, colors.black, width / 4, height / 4, 50);
+
+            // Change name - text box on button
+            const nameButtonX = width / 4;
+            const nameButtonY = height / 3;
+            const nameButtonW = 300;
+            const nameButtonH = 50;
+            
+            // Draw button background
+            ctx.fillStyle = colors.green;
+            ctx.fillRect(nameButtonX, nameButtonY, nameButtonW, nameButtonH);
+            showText('Change Name:', colors.black, nameButtonX + 10, nameButtonY + 10, 24);
+            
+            // Draw text input area on the button
+            const inputX = nameButtonX + 140;
+            const inputY = nameButtonY + 5;
+            const inputW = nameButtonW - 150;
+            const inputH = nameButtonH - 10;
+            ctx.fillStyle = colors.white;
+            ctx.fillRect(inputX, inputY, inputW, inputH);
+            ctx.strokeStyle = colors.black;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(inputX, inputY, inputW, inputH);
+            showText(editNewName, colors.black, inputX + 5, inputY + 5, 22);
+            
+            // Blinking cursor
+            if (cursorVisible && editingUserName) {
+                const textWidth = ctx.measureText(editNewName).width;
+                const cursorX = inputX + 5 + textWidth;
+                ctx.strokeStyle = colors.black;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(cursorX, inputY + 5);
+                ctx.lineTo(cursorX, inputY + inputH - 5);
+                ctx.stroke();
+            }
+            
+            const nameRect = { x: nameButtonX, y: nameButtonY, w: nameButtonW, h: nameButtonH };
+
+            // Color selection
+            showText('Select Color:', colors.black, width / 4, height / 2, 40);
+            const colorButtons = [];
+            for (let i = 0; i < colorOptions.length; i++) {
+                const row = Math.floor(i / 4);
+                const col = i % 4;
+                const x = width / 4 + col * 120;
+                const y = height / 2 + 50 + row * 60;
+                const isSelected = editNewColor === colorOptions[i].color;
+                
+                ctx.fillStyle = colorOptions[i].color;
+                ctx.fillRect(x, y, 100, 50);
+                if (isSelected) {
+                    ctx.strokeStyle = colors.white;
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(x, y, 100, 50);
+                }
+                // Make text smaller to fit in box
+                ctx.font = '14px Arial';
+                const textWidth = ctx.measureText(colorOptions[i].name).width;
+                const textX = x + (100 - textWidth) / 2;
+                const textY = y + (50 - 14) / 2;
+                ctx.fillStyle = colorOptions[i].fontColor;
+                ctx.textBaseline = 'top';
+                ctx.fillText(colorOptions[i].name, textX, textY);
+                colorButtons.push({ rect: { x, y, w: 100, h: 50 }, color: colorOptions[i].color });
+            }
+
+            const saveRect = drawButton(width / 2, height / 2 + 260, 200, 50, colors.green, 'Save');
+            const backRect = drawButton(width / 2 - 120, height / 2 + 260, 100, 50, colors.red, 'Back');
+            const deleteRect = drawButton(width - 220, height - 70, 180, 50, colors.red, 'Delete User', colors.white, 30);
+
+            // Define the text input area for click detection
+            const inputAreaRect = { x: inputX, y: inputY, w: inputW, h: inputH };
+            
+            if (mouseClicked) {
+                if (pointInRect(mouseX, mouseY, inputAreaRect)) {
+                    // Enable inline editing on the button
+                    editingUserName = true;
+                    textInput = editNewName;
+                    cursorVisible = true;
+                    cursorTimer = 0;
+                } else if (pointInRect(mouseX, mouseY, nameRect)) {
+                    // Clicking elsewhere on the button exits edit mode
+                    editingUserName = false;
+                }
+                for (const btn of colorButtons) {
+                    if (pointInRect(mouseX, mouseY, btn.rect)) {
+                        editNewColor = btn.color;
+                    }
+                }
+                if (pointInRect(mouseX, mouseY, saveRect)) {
+                    if (editNewName && editNewName !== editingUser) {
+                        users[editNewName] = users[editingUser];
+                        delete users[editingUser];
+                        editingUser = editNewName;
+                    }
+                    if (editNewColor) {
+                        users[editingUser].color = editNewColor;
+                    }
+                    saveUsers();
+                    gameState = 'userSelect';
+                }
+                if (pointInRect(mouseX, mouseY, backRect)) {
+                    gameState = 'userSelect';
+                }
+                if (pointInRect(mouseX, mouseY, deleteRect)) {
+                    if (confirm('Are you sure you want to delete this user? You cannot undo this change.')) {
+                        delete users[editingUser];
+                        saveUsers();
+                        editingUser = null;
+                        gameState = 'userSelect';
+                    }
+                }
+            }
+        }
+
+        // Car Selection Screen
+        function drawCarSelectionScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            showText('Select Your Car', colors.black, width / 3, height / 4, 60);
+
+            const backRect = drawButton(20, 20, 120, 50, colors.red, '< Back', colors.white, 24);
+
+            const carButtons = [];
+            const previewW = playerWidth;
+            const previewH = playerHeight;
+            const positions = [
+                { x: width / 5, color: carSelectionOptions[0].color, name: carSelectionOptions[0].name },
+                { x: 2 * width / 5, color: carSelectionOptions[1].color, name: carSelectionOptions[1].name },
+                { x: 3 * width / 5, color: carSelectionOptions[2].color, name: carSelectionOptions[2].name },
+                { x: 4 * width / 5, color: carSelectionOptions[3].color, name: carSelectionOptions[3].name }
+            ];
+
+            for (const pos of positions) {
+                drawCar(pos.x, height / 2, pos.color, previewW, previewH);
+                showText(pos.name, colors.black, pos.x, height / 2 + previewH + 10);
+                carButtons.push({ rect: { x: pos.x, y: height / 2, w: previewW, h: previewH + 30 }, color: pos.color });
+            }
+
+            if (mouseClicked) {
+                if (pointInRect(mouseX, mouseY, backRect)) {
+                    currentUser = null;
+                    gameState = 'userSelect';
+                    return;
+                }
+                for (const btn of carButtons) {
+                    if (pointInRect(mouseX, mouseY, btn.rect)) {
+                        playerColor = btn.color;
+                        gameState = 'countdown';
+                        countdownNumber = 3;
+                        countdownTimer = 0;
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Countdown Screen
+        function drawCountdownScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            if (countdownNumber > 0) {
+                showText(countdownNumber.toString(), colors.black, width / 2 - 20, height / 2 - 20, 100);
+            } else {
+                showText("GO!", colors.green, width / 2 - 30, height / 2 - 20, 100);
+            }
+        }
+
+        // Draw road and background
+        function drawRoad() {
+            // Green grass on sides
+            ctx.fillStyle = '#1a6b1a'; // Darker green
+            ctx.fillRect(0, 0, width, height);
+
+            // Road
+            const roadLeft = width * 0.15;
+            const roadWidth = width * 0.7;
+            ctx.fillStyle = colors.roadColor;
+            ctx.fillRect(roadLeft, 0, roadWidth, height);
+
+            // Road side stripes
+            ctx.fillStyle = colors.roadStripeColor;
+            ctx.fillRect(roadLeft - 10, 0, 10, height);
+            ctx.fillRect(roadLeft + roadWidth, 0, 10, height);
+
+            // Moving dashed center line
+            const dashH = 40;
+            const gap = 20;
+            laneOffset = (laneOffset + 8) % (dashH + gap);
+            const cx = width / 2;
+            ctx.fillStyle = colors.centerLineColor;
+            for (let i = -1; i < height / (dashH + gap) + 2; i++) {
+                const dy = i * (dashH + gap) + laneOffset - 100;
+                ctx.fillRect(cx - 5, dy, 10, dashH);
+            }
+
+            // Road texture lines
+            ctx.strokeStyle = '#323232';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < height; i += 60) {
+                ctx.beginPath();
+                ctx.moveTo(roadLeft + 5, i);
+                ctx.lineTo(roadLeft + roadWidth - 5, i);
+                ctx.stroke();
+            }
+        }
+
+        // Game Over Screen
+        function drawGameOverScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            showText('Game Over!', colors.black, width / 3, height / 3, 60);
+            showText(`Your Score: ${score}`, colors.black, width / 3, height / 3 + 60);
+            showText(`Highest Score: ${highestScore}`, colors.black, width / 3, height / 3 + 120);
+
+            const playAgainRect = drawButton(width / 3, height / 3 + 200, 300, 50, colors.green, 'Play Again');
+            const endSessionRect = drawButton(width / 3, height / 3 + 270, 300, 50, colors.red, 'End Session');
+
+            if (mouseClicked) {
+                if (pointInRect(mouseX, mouseY, playAgainRect)) {
+                    startGame();
+                }
+                if (pointInRect(mouseX, mouseY, endSessionRect)) {
+                    users[currentUser].score = highestScore;
+                    saveUsers();
+                    currentUser = null;
+                    gameState = 'start';
+                }
+            }
+        }
+
+        // Start game
+        function startGame() {
+            playerX = width / 2 - playerWidth / 2;
+            playerY = height - playerHeight - 10;
+            score = 0;
+            currentEnemySpeed = baseEnemySpeed;
+            particles = [];
+            explosionParticles = [];
+            resetEnemies();
+            nextQuestionScore = 25; // Reset next question score
+            selectedWrongChoice = null; // Clear any previous wrong choice
+            // Show math question at start of each round
+            showMathQuestion();
+        }
+
+        // Show math question
+        function showMathQuestion() {
+            mathQuestionData = generateFractionQuestion();
+            mathQuestionState = 'showing';
+            gameState = 'mathQuestion';
+        }
+
+        // Update game
+        function updateGame() {
+            // Move player
+            if (keys['ArrowLeft'] && playerX > 0) {
+                playerX -= playerSpeed;
+            }
+            if (keys['ArrowRight'] && playerX < width - playerWidth) {
+                playerX += playerSpeed;
+            }
+            if (keys['ArrowUp'] && playerY > 0) {
+                playerY -= playerSpeed;
+            }
+            if (keys['ArrowDown'] && playerY < height - playerHeight) {
+                playerY += playerSpeed;
+            }
+
+            // Blinking timers
+            scoreBlinkTimer += 16; // ~60fps
+            if (scoreBlinkTimer > 500) { // Blink every 500ms
+                scoreBlinkVisible = !scoreBlinkVisible;
+                scoreBlinkTimer = 0;
+            }
+
+            highScoreBlinkTimer += 16;
+            if (highScoreBlinkTimer > 400) { // Blink every 400ms
+                highScoreBlinkVisible = !highScoreBlinkVisible;
+                highScoreBlinkTimer = 0;
+            }
+
+            systemHighScoreBlinkTimer += 16;
+            if (systemHighScoreBlinkTimer > 300) { // Blink every 300ms
+                systemHighScoreBlinkVisible = !systemHighScoreBlinkVisible;
+                systemHighScoreBlinkTimer = 0;
+            }
+
+            // Move enemies
+            for (let enemy of enemies) {
+                enemy.y += currentEnemySpeed;
+                enemy.x += enemy.swerve;
+
+                // Swerve at edges
+                if (enemy.x <= 0 || enemy.x >= width - enemyWidth) {
+                    enemy.swerve *= -1;
+                }
+
+                // Reset enemy when off screen
+                if (enemy.y > height) {
+                    enemy.y = Math.random() * -800 - 100;
+                    enemy.x = Math.random() * (width - enemyWidth);
+                    enemy.swerve = Math.random() < 0.5 ? -2 : 2;
+                    score++;
+                    // Increase speed every 15 cars passed
+                    if (score % 15 === 0) {
+                        currentEnemySpeed += 0.1;
+                    }
+                    
+                    // Check if we need to show a math question (every 25 points)
+                    if (score > 0 && score >= nextQuestionScore) {
+                        showMathQuestion();
+                        nextQuestionScore += 25; // Set next threshold
+                        return; // Exit update to show question
+                    }
+                    
+                    // Check if we're about to break the high score
+                    if (score === highestScore && highestScore > 0) {
+                        showingHighScoreLine = true;
+                    }
+                    
+                    // Check if we're about to break the system high score
+                    let allHigh = 0;
+                    for (let u in users) {
+                        if (users[u].score > allHigh) {
+                            allHigh = users[u].score;
+                        }
+                    }
+                    if (score === allHigh && allHigh > 0) {
+                        showingSystemHighScoreLine = true;
+                    }
+                }
+
+                // Collision detection
+                if (playerY < enemy.y + enemyHeight &&
+                    playerY + playerHeight > enemy.y &&
+                    playerX < enemy.x + enemyWidth &&
+                    playerX + playerWidth > enemy.x) {
+                    createExplosion(playerX + playerWidth / 2, playerY + playerHeight / 2);
+                    
+                    // Check for high scores and show notifications
+                    let newPersonalBest = false;
+                    let newSystemBest = false;
+                    
+                    if (score > highestScore) {
+                        highestScore = score;
+                        users[currentUser].score = highestScore;
+                        newPersonalBest = true;
+                    }
+                    
+                    // Check if this is the highest score ever across all users
+                    let allHigh = 0;
+                    for (let u in users) {
+                        if (users[u].score > allHigh) {
+                            allHigh = users[u].score;
+                        }
+                    }
+                    if (score >= allHigh && score > 0) {
+                        newSystemBest = true;
+                    }
+                    
+                    // Save immediately
+                    saveUsers();
+                    
+                    // Set popup notification
+                    if (newSystemBest) {
+                        highScorePopup = { message: "You got the highest score in the system! Spot on!", type: 'system' };
+                    } else if (newPersonalBest) {
+                        highScorePopup = { message: "You beat your own high score!", type: 'personal' };
+                    }
+                    
+                    gameState = 'gameOver';
+                    return;
+                }
+            }
+
+            // Particle exhaust
+            if (keys['ArrowDown'] || keys['ArrowUp'] || keys['ArrowLeft'] || keys['ArrowRight']) {
+                const px = playerX + playerWidth / 2;
+                const py = playerY + playerHeight;
+                particles.push({
+                    x: px + (Math.random() - 0.5) * 12,
+                    y: py,
+                    r: 4 + Math.random() * 4,
+                    life: 30
+                });
+            }
+
+            // Update particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.y += 2;
+                p.x += (Math.random() - 0.5);
+                p.life--;
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+
+        // Draw game
+        function drawGame() {
+            drawRoad();
+
+            // Draw enemies
+            for (let enemy of enemies) {
+                drawCar(enemy.x, enemy.y, '#B40000', enemyWidth, enemyHeight, true);
+            }
+
+            // Draw player
+            drawCar(playerX, playerY, playerColor, playerWidth, playerHeight);
+
+            // Draw particles
+            for (const p of particles) {
+                const alpha = p.life / 30;
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = '#C8C8C8';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+
+            // Draw explosions
+            drawExplosions();
+
+            // Show score with blinking effect when approaching high score
+            let scoreColor = colors.white;
+            if (showingHighScoreLine || score > highestScore) {
+                scoreColor = scoreBlinkVisible ? colors.yellow : colors.white;
+            }
+            showText(`Score: ${score}`, scoreColor, 10, 10);
+
+            // Show all-time high score with blinking
+            let allHigh = 0;
+            let userWithHigh = 'None';
+            for (let u in users) {
+                if (users[u].score > allHigh) {
+                    allHigh = users[u].score;
+                    userWithHigh = u;
+                }
+            }
+            
+            // Blink the all-time high score when approaching it
+            let allHighColor = colors.white;
+            if (showingSystemHighScoreLine || score >= allHigh) {
+                allHighColor = systemHighScoreBlinkVisible ? '#FFD700' : colors.white;
+            }
+            showText(`High Score In All Users: ${allHigh} by ${userWithHigh}`, allHighColor, 10, 40);
+
+            // Show user's high score with blinking
+            let yourHighColor = colors.white;
+            if (showingHighScoreLine || score >= highestScore) {
+                yourHighColor = highScoreBlinkVisible ? colors.yellow : colors.white;
+            }
+            showText(`Your High Score: ${highestScore}`, yourHighColor, width - 350, 10);
+        }
+
+        // Main game loop
+        let lastTime = 0;
+        let cursorBlinkInterval = 500;
+
+        function gameLoop(timestamp) {
+            const deltaTime = timestamp - lastTime;
+            lastTime = timestamp;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+
+            // Handle game states
+            switch (gameState) {
+                case 'start':
+                    drawStartScreen();
+                    if (mouseClicked && pointInRect(mouseX, mouseY, { x: width / 3, y: height / 3 + 200, w: 300, h: 50 })) {
+                        gameState = 'serverCode';
+                        textInput = '';
+                        cursorVisible = true;
+                        cursorTimer = 0;
+                    }
+                    break;
+
+                case 'serverCode':
+                    // Cursor blinking
+                    cursorTimer += deltaTime;
+                    if (cursorTimer > cursorBlinkInterval) {
+                        cursorVisible = !cursorVisible;
+                        cursorTimer = 0;
+                    }
+                    drawServerCodeScreen();
+                    break;
+
+                case 'userSelect':
+                    drawUserSelectionScreen();
+                    break;
+
+                case 'textInput':
+                    // Cursor blinking
+                    cursorTimer += deltaTime;
+                    if (cursorTimer > cursorBlinkInterval) {
+                        cursorVisible = !cursorVisible;
+                        cursorTimer = 0;
+                    }
+                    drawTextInputScreen();
+                    break;
+
+                case 'editUser':
+                    drawEditUserScreen();
+                    break;
+
+                case 'carSelect':
+                    drawCarSelectionScreen();
+                    break;
+
+                case 'mathQuestion':
+                    // Draw math question and handle clicks
+                    const choiceButtons = drawMathQuestionScreen();
+                    if (mouseClicked) {
+                        for (const btn of choiceButtons) {
+                            if (pointInRect(mouseX, mouseY, btn.rect)) {
+                                if (btn.choice === mathQuestionData.correct) {
+                                    // Correct answer - show green outline and continue
+                                    selectedWrongChoice = null; // Clear any previous wrong choice
+                                    // Show green outline briefly
+                                    ctx.strokeStyle = colors.green;
+                                    ctx.lineWidth = 4;
+                                    ctx.strokeRect(btn.rect.x, btn.rect.y, btn.rect.w, btn.rect.h);
+                                    
+                                    // Continue to countdown after a brief delay
+                                    setTimeout(() => {
+                                        if (gameState === 'mathQuestion') {
+                                            gameState = 'countdown';
+                                            countdownNumber = 3;
+                                            countdownTimer = 0;
+                                        }
+                                    }, 500);
+                                } else {
+                                    // Wrong answer - mark it and let them try again
+                                    selectedWrongChoice = btn.choice;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    break;
+
+                case 'countdown':
+                    countdownTimer += deltaTime;
+                    if (countdownTimer >= 1000) {
+                        countdownTimer = 0;
+                        if (countdownNumber > 0) {
+                            countdownNumber--;
+                        } else {
+                            // GO! has been shown, now start the game
+                            startGame();
+                        }
+                    }
+                    drawCountdownScreen();
+                    break;
+
+                case 'playing':
+                    updateGame();
+                    drawGame();
+                    break;
+
+                case 'gameOver':
+                    updateExplosions();
+                    drawGame();
+                    drawExplosions();
+                    drawGameOverScreen();
+                    // Draw popup if exists
+                    if (highScorePopup) {
+                        drawHighScorePopup();
+                        // Handle OK button click
+                        if (mouseClicked) {
+                            const popupW = 500;
+                            const popupH = 150;
+                            const popupX = (width - popupW) / 2;
+                            const popupY = (height - popupH) / 2;
+                            const okBtnW = 120;
+                            const okBtnH = 45;
+                            const okBtnX = (width - okBtnW) / 2;
+                            const okBtnY = popupY + popupH - 60;
+                            const okBtnRect = { x: okBtnX, y: okBtnY, w: okBtnW, h: okBtnH };
+                            if (pointInRect(mouseX, mouseY, okBtnRect)) {
+                                highScorePopup = null;
+                            }
+                        }
+                    }
+                    break;
+
+                case 'settings':
+                    drawPasswordScreen();
+                    break;
+
+                case 'serverManager':
+                    drawServerManagerScreen();
+                    break;
+
+                case 'closed':
+                    // Game is closed, do nothing
+                    break;
+            }
+
+            // Reset mouse click
+            mouseClicked = false;
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Event listeners
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = (e.clientX - rect.left) * (width / rect.width);
+            mouseY = (e.clientY - rect.top) * (height / rect.height);
+        });
+
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = (e.clientX - rect.left) * (width / rect.width);
+            mouseY = (e.clientY - rect.top) * (height / rect.height);
+            mouseClicked = true;
+        });
+
+        // Prevent all scrolling on the page
+        document.addEventListener('keydown', (e) => {
+            // Prevent default scrolling behavior for all keys that might cause scrolling
+            const scrollKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'PageUp', 'PageDown', 'Home', 'End', 'Tab'];
+            if (scrollKeys.includes(e.key)) {
+                e.preventDefault();
+            }
+
+            keys[e.key] = true;
+
+            // Handle inline name editing on edit user screen
+            if (gameState === 'editUser' && editingUserName) {
+                if (e.key === 'Enter') {
+                    editNewName = textInput.trim();
+                    editingUserName = false;
+                } else if (e.key === 'Escape') {
+                    editingUserName = false;
+                    textInput = editNewName;
+                } else if (e.key === 'Backspace') {
+                    textInput = textInput.slice(0, -1);
+                } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                    // Accept any printable character including emojis, special characters, etc.
+                    textInput += e.key;
+                }
+                // Update editNewName in real-time as user types
+                editNewName = textInput;
+                cursorVisible = true;
+                cursorTimer = 0;
+            }
+
+            if (gameState === 'textInput') {
+                if (e.key === 'Enter' && textInput.trim()) {
+                    if (editingUser) {
+                        editNewName = textInput.trim();
+                        gameState = 'editUser';
+                    } else {
+                        if (!users[textInput.trim()]) {
+                            users[textInput.trim()] = { score: 0, color: colors.blue };
+                            saveUsers();
+                            currentUser = textInput.trim();
+                            highestScore = 0;
+                            gameState = 'carSelect';
+                        }
+                    }
+                } else if (e.key === 'Backspace') {
+                    textInput = textInput.slice(0, -1);
+                } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                    // Accept any printable character including emojis, special characters, etc.
+                    textInput += e.key;
+                }
+                cursorVisible = true;
+                cursorTimer = 0;
+            }
+
+            // Handle server code input
+            if (gameState === 'serverCode') {
+                if (e.key === 'Enter' && textInput.trim()) {
+                    const serverCode = textInput.trim().toLowerCase().replace(/\s+/g, '_');
+                    
+                    // If empty, use default server
+                    if (!serverCode) {
+                        switchServer('default');
+                        serverCodeError = '';
+                        gameState = 'userSelect';
+                    } else {
+                        // Check if server exists
+                        if (servers[serverCode]) {
+                            switchServer(serverCode);
+                            serverCodeError = '';
+                            gameState = 'userSelect';
+                        } else {
+                            // Server doesn't exist - show error
+                            serverCodeError = 'Server name invalid. Please try again.';
+                            textInput = ''; // Clear input for retry
+                        }
+                    }
+                } else if (e.key === 'Backspace') {
+                    textInput = textInput.slice(0, -1);
+                } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                    // Accept any printable character including emojis, special characters, etc.
+                    textInput += e.key;
+                } else if (e.key === 'Escape') {
+                    gameState = 'start';
+                }
+                cursorVisible = true;
+                cursorTimer = 0;
+            }
+
+            // Handle password input for settings screen
+            if (gameState === 'settings') {
+                if (e.key === 'Enter' && textInput.trim()) {
+                    if (textInput.trim() === ownerPassword) {
+                        isOwnerMode = true;
+                        gameState = 'serverManager';
+                    } else {
+                        alert('Incorrect password!');
+                        textInput = '';
+                    }
+                } else if (e.key === 'Backspace') {
+                    textInput = textInput.slice(0, -1);
+                } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                    textInput += e.key;
+                } else if (e.key === 'Escape') {
+                    gameState = 'userSelect';
+                }
+                cursorVisible = true;
+                cursorTimer = 0;
+            }
+
+            if (gameState === 'gameOver') {
+                if (e.key === 'Enter') {
+                    startGame();
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+
+        // Polyfill for roundRect if not supported
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, radii) {
+                const r = typeof radii === 'number' ? radii : radii[0] || 0;
+                this.moveTo(x + r, y);
+                this.lineTo(x + w - r, y);
+                this.quadraticCurveTo(x + w, y, x + w, y + r);
+                this.lineTo(x + w, y + h - r);
+                this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+                this.lineTo(x + r, y + h);
+                this.quadraticCurveTo(x, y + h, x, y + h - r);
+                this.lineTo(x, y + r);
+                this.quadraticCurveTo(x, y, x + r, y);
+                this.closePath();
+            };
+        }
+
+        // Start the game loop
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
