@@ -67,7 +67,7 @@
         };
 
         // Game state
-        let gameState = 'start'; // start, serverCode, userSelect, carSelect, textInput, editUser, settings, serverManager, countdown, playing, gameOver, endSession
+        let gameState = 'start'; // start, serverCode, loading, userSelect, carSelect, textInput, editUser, settings, serverManager, countdown, playing, gameOver, endSession
         let currentScreen = 'start';
         let currentUser = null;
         let playerColor = null;
@@ -101,6 +101,8 @@
         let systemHighScoreBlinkVisible = true; // Track if system high score is visible
         let displayHighScore = 0; // For counting up animation
         let displaySystemHighScore = 0; // For system high score counting up animation
+        let allServers = {}; // Stores all server data from backend
+        let allUsersInCurrentServer = {}; // Stores users for the currently selected server
         let serverCodeError = ''; // Error message for server code screen
 
         // Player settings
@@ -117,114 +119,179 @@
         const numEnemies = 7;
 
         // Users storage (using localStorage)
-        let users = {};
+        let users = {}; // This is populated from the backend
         
         // Server management
         let currentServer = 'default';
-        let servers = {};
+        // let servers = {}; // This will now be `allServers`
         let isOwnerMode = false;
         let ownerPassword = '251807'; // Default password - should be changed
         
-        // Initialize servers
-        function initServers() {
-            const storedServers = localStorage.getItem('carGameServers');
-            if (storedServers) {
-                try {
-                    servers = JSON.parse(storedServers);
-                    // Ensure default server exists
-                    if (!servers.default) {
-                        servers.default = { users: {}, name: 'Default Server' };
-                    }
-                } catch (e) {
-                    servers = { default: { users: {}, name: 'Default Server' } };
+        const API_BASE_URL = window.CAR_GAME_API_BASE_URL || (
+            window.location.protocol === 'file:'
+                ? 'http://127.0.0.1:5000/api'
+                : `${window.location.origin}/api`
+        );
+
+        // --- API Interaction Functions ---
+
+        async function fetchServers() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/servers`);
+                if (!response.ok) throw new Error('Failed to fetch servers');
+                allServers = await response.json();
+                // Ensure 'default' server is always present in the client-side representation
+                if (!allServers.default) {
+                    allServers.default = { code: 'default', name: 'Default Server', created: 'initial' };
                 }
-            } else {
-                servers = { default: { users: {}, name: 'Default Server' } };
+                return allServers;
+            } catch (error) {
+                console.error('Error fetching servers:', error);
+                return {};
             }
-            
-            // Load current server
+        }
+
+        async function fetchUsersForServer(serverCode) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/servers/${serverCode}/users`);
+                if (!response.ok) throw new Error('Failed to fetch users');
+                users = await response.json();
+                return users;
+            } catch (error) {
+                console.error(`Error fetching users for server ${serverCode}:`, error);
+                return {};
+            }
+        }
+
+        async function switchServer(serverKey) {
+            if (allServers[serverKey]) {
+                currentServer = serverKey;
+                users = await fetchUsersForServer(serverKey);
+                // Store current server in localStorage for persistence across browser sessions
+                localStorage.setItem('carGameCurrentServer', currentServer);
+            }
+        }
+
+        async function addServer(serverName) {
+            const serverKey = serverName.toLowerCase().replace(/\s+/g, '_');
+            if (allServers[serverKey]) {
+                return false; // Server already exists locally
+            }
+            try {
+                const response = await fetch(`${API_BASE_URL}/servers`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: serverKey, name: serverName, created: new Date().toISOString() })
+                });
+                if (response.status === 409) { // Conflict, server already exists on backend
+                    return false;
+                }
+                if (!response.ok) throw new Error('Failed to create server');
+                await fetchServers(); // Refresh local server list
+                return true;
+            } catch (error) {
+                console.error('Error adding server:', error);
+                return false;
+            }
+        }
+
+        async function deleteServer(serverKey) {
+            if (serverKey === 'default') {
+                return false; // Cannot delete default server
+            }
+            if (!allServers[serverKey]) {
+                return false; // Server not found locally
+            }
+            try {
+                const response = await fetch(`${API_BASE_URL}/servers/${serverKey}`, {
+                    method: 'DELETE'
+                });
+                if (!response.ok) throw new Error('Failed to delete server');
+                await fetchServers();
+                if (currentServer === serverKey) {
+                    await switchServer('default');
+                }
+                
+                // Store current server in localStorage for persistence across browser sessions
+                localStorage.setItem('carGameCurrentServer', currentServer);
+                return true;
+            } catch (error) {
+                console.error('Error deleting server:', error);
+                return false;
+            }
+        }
+
+        async function createUser(serverCode, userName, initialScore = 0, initialColor = colors.blue) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/servers/${serverCode}/users`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: userName, score: initialScore, color: initialColor })
+                });
+                if (response.status === 409) { // User already exists
+                    return false;
+                }
+                if (!response.ok) throw new Error('Failed to create user');
+                const data = await response.json();
+                users[userName] = data.user; // Add to local list
+                return true;
+            } catch (error) {
+                console.error('Error creating user:', error);
+                return false;
+            }
+        }
+
+        async function updateUser(serverCode, oldUserName, newUserName, newScore, newColor) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/servers/${serverCode}/users/${oldUserName}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newUserName, score: newScore, color: newColor })
+                });
+                if (response.status === 409) { // New username already exists
+                    return false;
+                }
+                if (!response.ok) throw new Error('Failed to update user');
+                const data = await response.json();
+                // Update local list
+                if (oldUserName !== newUserName) {
+                    delete users[oldUserName];
+                }
+                users[newUserName] = data.user;
+                return true;
+            } catch (error) {
+                console.error('Error updating user:', error);
+                return false;
+            }
+        }
+
+        async function deleteUser(serverCode, userName) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/servers/${serverCode}/users/${userName}`, {
+                    method: 'DELETE'
+                });
+                if (!response.ok) throw new Error('Failed to delete user');
+                delete users[userName]; // Remove from local list
+                return true;
+            } catch (error) {
+                console.error('Error deleting user:', error);
+                return false;
+            }
+        }
+
+        // Load users from localStorage
+        // This function is now replaced by `fetchUsersForServer`
+        // We'll call `initGameData` at startup instead
+        async function initGameData() {
+            await fetchServers();
             const storedCurrentServer = localStorage.getItem('carGameCurrentServer');
-            if (storedCurrentServer && servers[storedCurrentServer]) {
+            if (storedCurrentServer && allServers[storedCurrentServer]) {
                 currentServer = storedCurrentServer;
             } else {
                 currentServer = 'default';
             }
-            
-            // Load users for current server
-            users = servers[currentServer].users || {};
+            users = await fetchUsersForServer(currentServer);
         }
-        
-        // Save servers
-        function saveServers() {
-            localStorage.setItem('carGameServers', JSON.stringify(servers));
-            localStorage.setItem('carGameCurrentServer', currentServer);
-        }
-        
-        // Switch server
-        function switchServer(serverKey) {
-            if (servers[serverKey]) {
-                currentServer = serverKey;
-                users = servers[currentServer].users || {};
-                saveServers();
-            }
-        }
-        
-        // Add new server
-        function addServer(serverName) {
-            const serverKey = serverName.toLowerCase().replace(/\s+/g, '_');
-            if (!servers[serverKey]) {
-                servers[serverKey] = { 
-                    users: {}, 
-                    name: serverName,
-                    created: new Date().toISOString()
-                };
-                saveServers();
-                return true;
-            }
-            return false;
-        }
-        
-        // Delete server
-        function deleteServer(serverKey) {
-            if (servers[serverKey] && serverKey !== 'default') {
-                delete servers[serverKey];
-                if (currentServer === serverKey) {
-                    currentServer = 'default';
-                    users = servers.default.users;
-                }
-                saveServers();
-                return true;
-            }
-            return false;
-        }
-
-        // Load users from localStorage
-        function loadUsers() {
-            const stored = localStorage.getItem('carGameUsers');
-            if (stored) {
-                try {
-                    users = JSON.parse(stored);
-                    // Convert old format if needed
-                    for (let name in users) {
-                        if (typeof users[name] === 'number') {
-                            users[name] = { score: users[name], color: colors.blue };
-                        } else if (users[name] && !users[name].color) {
-                            users[name].color = colors.blue;
-                        }
-                    }
-                } catch (e) {
-                    users = {};
-                }
-            }
-        }
-
-        // Save users to localStorage
-        function saveUsers() {
-            localStorage.setItem('carGameUsers', JSON.stringify(users));
-        }
-
-        // Initialize servers and users
-        initServers();
 
         // Math question system
         let mathQuestionData = null;
@@ -340,6 +407,13 @@
             }
             
             return choiceButtons;
+        }
+
+        // Draw loading screen
+        function drawLoadingScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            showText('Connecting to Backend... Please Wait', colors.black, width / 4, height / 2, 40);
         }
 
         // Show wrong answer feedback
@@ -657,17 +731,16 @@
                 if (pointInRect(mouseX, mouseY, joinRect)) {
                     const serverCode = textInput.trim().toLowerCase().replace(/\s+/g, '_');
                     
-                    // If empty, use default server
-                    if (!serverCode) {
-                        switchServer('default');
-                        serverCodeError = '';
-                        gameState = 'userSelect';
+                    gameState = 'loading'; // Show loading while fetching
+                    if (!serverCode || serverCode === 'default') {
+                        switchServer('default').then(() => {
+                            serverCodeError = ''; gameState = 'userSelect';
+                        });
                     } else {
-                        // Check if server exists
-                        if (servers[serverCode]) {
-                            switchServer(serverCode);
-                            serverCodeError = '';
-                            gameState = 'userSelect';
+                        if (allServers[serverCode]) {
+                            switchServer(serverCode).then(() => {
+                                serverCodeError = ''; gameState = 'userSelect';
+                            });
                         } else {
                             // Server doesn't exist - show error
                             serverCodeError = 'Server name invalid. Please try again.';
@@ -701,7 +774,7 @@
             ctx.fillRect(0, 0, width, height);
             showText('Select User', colors.black, width / 3, height / 4, 60);
 
-            let buttonY = height / 3;
+            let buttonY = height / 3 + 20;
             const userButtons = [];
 
             for (let user in users) {
@@ -709,7 +782,7 @@
                 const userColor = userData.color || colors.blue;
                 const userRgb = userColor;
                 const fontColor = [colors.orange, colors.yellow, colors.pink, colors.green, '#C0C0C0', colors.white].includes(userRgb) ? colors.black : colors.white;
-
+                
                 const userRect = drawButton(width / 3, buttonY, 250, 50, userColor, user, fontColor);
                 userButtons.push({ rect: userRect, action: user });
 
@@ -726,9 +799,8 @@
             const settingsRect = drawButton(20, height - 70, 250, 50, colors.red, 'Settings (FOR OWNER ONLY)', colors.white, 24);
             userButtons.push({ rect: settingsRect, action: 'settings' });
 
-            // Show current server info
-            showText(`Current Server: ${servers[currentServer].name}`, colors.white, width - 350, height - 60, 20);
-            showText(`Users in this server: ${Object.keys(users).length}`, colors.white, width - 350, height - 30, 20);
+            showText(`Current Server: ${allServers[currentServer] ? allServers[currentServer].name : 'Loading...'}`, colors.white, width - 350, height - 60, 20);
+            showText(`Users in this server: ${Object.keys(allUsersInCurrentServer).length}`, colors.white, width - 350, height - 30, 20);
 
             // Handle clicks
             if (mouseClicked) {
@@ -791,14 +863,18 @@
                         // This will be handled by editUser screen
                         editNewName = textInput.trim();
                         gameState = 'editUser';
-                    } else {
-                        if (!users[textInput.trim()]) {
-                            users[textInput.trim()] = { score: 0, color: colors.blue };
-                            saveUsers();
-                            currentUser = textInput.trim();
-                            highestScore = 0;
-                            gameState = 'carSelect';
-                        }
+                    } else if (textInput.trim()) { // Only proceed if input is not empty
+                        gameState = 'loading';
+                        createUser(currentServer, textInput.trim()).then(success => {
+                            if (success) {
+                                currentUser = textInput.trim();
+                                highestScore = 0;
+                                gameState = 'carSelect';
+                            } else {
+                                alert('User already exists!');
+                                gameState = 'textInput';
+                            }
+                        });
                     }
                 }
             }
@@ -853,15 +929,13 @@
             const buttons = [];
 
             // List all servers
-            for (let serverKey in servers) {
-                const server = servers[serverKey];
-                const userCount = Object.keys(server.users || {}).length;
+            for (let serverKey in allServers) {
+                const server = allServers[serverKey];
                 const isCurrent = serverKey === currentServer;
                 const serverName = server.name || serverKey;
                 
-                // Server button
-                const serverColor = isCurrent ? colors.green : colors.blue;
-                const serverText = `${serverName} (${userCount} users)`;
+                const serverColor = isCurrent ? colors.green : colors.blue; // Highlight current server
+                const serverText = `${serverName} (${server.user_count || 0} users)`;
                 const serverRect = drawButton(width / 4, buttonY, 350, 50, serverColor, serverText);
                 buttons.push({ rect: serverRect, action: 'switch_' + serverKey });
 
@@ -887,26 +961,33 @@
                 for (const btn of buttons) {
                     if (pointInRect(mouseX, mouseY, btn.rect)) {
                         if (btn.action === 'back') {
+                            isOwnerMode = false; // Exit owner mode
                             gameState = 'userSelect';
                         } else if (btn.action === 'add') {
                             // Prompt for new server name
                             const serverName = prompt('Enter new server name:');
                             if (serverName && serverName.trim()) {
-                                if (addServer(serverName.trim())) {
-                                    alert('Server created successfully!');
-                                } else {
-                                    alert('Server already exists!');
-                                }
+                                gameState = 'loading';
+                                addServer(serverName.trim()).then(success => {
+                                    if (success) alert('Server created!');
+                                    else alert('Failed to create server.');
+                                    gameState = 'serverManager';
+                                });
                             }
                         } else if (btn.action.startsWith('switch_')) {
+                            gameState = 'loading';
                             const serverKey = btn.action.substring(7);
-                            switchServer(serverKey);
+                            switchServer(serverKey).then(() => {
+                                gameState = 'serverManager';
+                            });
                         } else if (btn.action.startsWith('delete_')) {
                             const serverKey = btn.action.substring(7);
-                            if (confirm(`Are you sure you want to delete "${servers[serverKey].name}"?`)) {
-                                if (deleteServer(serverKey)) {
-                                    alert('Server deleted successfully!');
-                                }
+                            if (confirm(`Are you sure you want to delete "${allServers[serverKey].name}"?`)) {
+                                gameState = 'loading';
+                                deleteServer(serverKey).then(success => {
+                                    if (success) alert('Server deleted!');
+                                    gameState = 'serverManager';
+                                });
                             }
                         }
                         break;
@@ -1010,26 +1091,31 @@
                     }
                 }
                 if (pointInRect(mouseX, mouseY, saveRect)) {
-                    if (editNewName && editNewName !== editingUser) {
-                        users[editNewName] = users[editingUser];
-                        delete users[editingUser];
-                        editingUser = editNewName;
-                    }
-                    if (editNewColor) {
-                        users[editingUser].color = editNewColor;
-                    }
-                    saveUsers();
-                    gameState = 'userSelect';
+                    gameState = 'loading';
+                    updateUser(currentServer, editingUser, editNewName, users[editingUser].score, editNewColor).then(success => {
+                        if (success) {
+                            gameState = 'userSelect';
+                        } else {
+                            alert('Failed to update user!');
+                            gameState = 'editUser';
+                        }
+                    });
                 }
                 if (pointInRect(mouseX, mouseY, backRect)) {
                     gameState = 'userSelect';
                 }
                 if (pointInRect(mouseX, mouseY, deleteRect)) {
                     if (confirm('Are you sure you want to delete this user? You cannot undo this change.')) {
-                        delete users[editingUser];
-                        saveUsers();
-                        editingUser = null;
-                        gameState = 'userSelect';
+                        gameState = 'loading';
+                        deleteUser(currentServer, editingUser).then(success => {
+                            if (success) {
+                                editingUser = null;
+                                gameState = 'userSelect';
+                            } else {
+                                alert('Error deleting user');
+                                gameState = 'editUser';
+                            }
+                        });
                     }
                 }
             }
@@ -1142,9 +1228,8 @@
                 if (pointInRect(mouseX, mouseY, playAgainRect)) {
                     startGame();
                 }
-                if (pointInRect(mouseX, mouseY, endSessionRect)) {
-                    users[currentUser].score = highestScore;
-                    saveUsers();
+                if (pointInRect(mouseX, mouseY, endSessionRect)) { // End session button
+                    // Score is already saved on collision, so no need to save again here
                     currentUser = null;
                     gameState = 'start';
                 }
@@ -1237,10 +1322,10 @@
                     }
                     
                     // Check if we're about to break the high score
-                    if (score === highestScore && highestScore > 0) {
+                    if (score > 0 && score === highestScore) {
                         showingHighScoreLine = true;
                     }
-                    
+
                     // Check if we're about to break the system high score
                     let allHigh = 0;
                     for (let u in users) {
@@ -1266,7 +1351,6 @@
                     
                     if (score > highestScore) {
                         highestScore = score;
-                        users[currentUser].score = highestScore;
                         newPersonalBest = true;
                     }
                     
@@ -1289,7 +1373,7 @@
                         highScorePopup = { message: "You got the highest score in the system! Spot on!", type: 'system' };
                     } else if (newPersonalBest) {
                         highScorePopup = { message: "You beat your own high score!", type: 'personal' };
-                    }
+                    } // If neither, no popup
                     
                     gameState = 'gameOver';
                     return;
@@ -1359,7 +1443,7 @@
             for (let u in users) {
                 if (users[u].score > allHigh) {
                     allHigh = users[u].score;
-                    userWithHigh = u;
+                    userWithHigh = users[u].name;
                 }
             }
             
@@ -1383,6 +1467,7 @@
         let cursorBlinkInterval = 500;
 
         function gameLoop(timestamp) {
+            // Initial setup for game data
             const deltaTime = timestamp - lastTime;
             lastTime = timestamp;
 
@@ -1393,7 +1478,7 @@
             switch (gameState) {
                 case 'start':
                     drawStartScreen();
-                    if (mouseClicked && pointInRect(mouseX, mouseY, { x: width / 3, y: height / 3 + 200, w: 300, h: 50 })) {
+                    if (mouseClicked && pointInRect(mouseX, mouseY, { x: width / 3, y: height / 3 + 200, w: 300, h: 50 })) { // Start Game button
                         gameState = 'serverCode';
                         textInput = '';
                         cursorVisible = true;
@@ -1411,8 +1496,12 @@
                     drawServerCodeScreen();
                     break;
 
+                case 'loading':
+                    drawLoadingScreen();
+                    break;
+
                 case 'userSelect':
-                    drawUserSelectionScreen();
+                    drawUserSelectionScreen(); // This screen will trigger data fetches
                     break;
 
                 case 'textInput':
@@ -1489,7 +1578,7 @@
                     drawGame();
                     drawExplosions();
                     drawGameOverScreen();
-                    // Draw popup if exists
+                    // Draw high score popup if exists
                     if (highScorePopup) {
                         drawHighScorePopup();
                         // Handle OK button click
@@ -1521,6 +1610,11 @@
                 case 'closed':
                     // Game is closed, do nothing
                     break;
+            }
+
+            // After each frame, if playing, update user score on backend
+            if (gameState === 'playing' && currentUser && users[currentUser] && score > users[currentUser].score) {
+                updateUser(currentServer, currentUser, currentUser, score, users[currentUser].color);
             }
 
             // Reset mouse click
@@ -1575,22 +1669,24 @@
 
             if (gameState === 'textInput') {
                 if (e.key === 'Enter' && textInput.trim()) {
-                    if (editingUser) {
+                    if (editingUser) { // If editing an existing user
                         editNewName = textInput.trim();
                         gameState = 'editUser';
-                    } else {
-                        if (!users[textInput.trim()]) {
-                            users[textInput.trim()] = { score: 0, color: colors.blue };
-                            saveUsers();
-                            currentUser = textInput.trim();
-                            highestScore = 0;
-                            gameState = 'carSelect';
-                        }
+                    } else { // If adding a new user
+                        createUser(currentServer, textInput.trim()).then(success => {
+                            if (success) {
+                                currentUser = textInput.trim();
+                                highestScore = 0;
+                                gameState = 'carSelect';
+                            } else {
+                                alert('User already exists or failed to create!');
+                                textInput = ''; // Clear input for retry
+                            }
+                        });
                     }
                 } else if (e.key === 'Backspace') {
                     textInput = textInput.slice(0, -1);
-                } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
-                    // Accept any printable character including emojis, special characters, etc.
+                } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey && textInput.length < 20) {
                     textInput += e.key;
                 }
                 cursorVisible = true;
@@ -1601,23 +1697,23 @@
             if (gameState === 'serverCode') {
                 if (e.key === 'Enter' && textInput.trim()) {
                     const serverCode = textInput.trim().toLowerCase().replace(/\s+/g, '_');
-                    
+
                     // If empty, use default server
-                    if (!serverCode) {
-                        switchServer('default');
-                        serverCodeError = '';
-                        gameState = 'userSelect';
-                    } else {
-                        // Check if server exists
-                        if (servers[serverCode]) {
-                            switchServer(serverCode);
+                    if (!serverCode || serverCode === 'default') {
+                        switchServer('default').then(() => {
                             serverCodeError = '';
                             gameState = 'userSelect';
-                        } else {
-                            // Server doesn't exist - show error
-                            serverCodeError = 'Server name invalid. Please try again.';
-                            textInput = ''; // Clear input for retry
-                        }
+                        });
+                        serverCodeError = '';
+                    } else if (allServers[serverCode]) { // Check if server exists locally
+                        switchServer(serverCode).then(() => {
+                            serverCodeError = '';
+                            gameState = 'userSelect';
+                        });
+                    } else {
+                        // Server doesn't exist - show error
+                        serverCodeError = 'Server name invalid. Please try again.';
+                        textInput = ''; // Clear input for retry
                     }
                 } else if (e.key === 'Backspace') {
                     textInput = textInput.slice(0, -1);
@@ -1681,7 +1777,7 @@
         }
 
         // Start the game loop
-        requestAnimationFrame(gameLoop);
+        initGameData().then(() => requestAnimationFrame(gameLoop)); // Initialize data then start loop
     </script>
 </body>
 </html>
