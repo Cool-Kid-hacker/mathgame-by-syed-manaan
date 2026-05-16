@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Arham the Cow - The Wisest Animal Ever to be Existed</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: black;
+      color: white;
+      text-align: center;
+      padding: 20px;
+      margin: 0;
+    }
+
+    header {
+      position: relative;
+      background: linear-gradient(135deg, #a3d2ca, #82c4b6, #61b6a2, #41988e);
+      color: white;
+      padding: 30px;
+      border-radius: 20px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    header img {
+      width: 150px;
+      height: auto;
+      border-radius: 10px;
+    }
+
+    h1 {
+      font-size: 3.5em;
+      margin: 0;
+      text-shadow: 0 0 10px #fff, 0 0 20px #ff0, 0 0 30px #ff0;
+    }
+
+    nav {
+      margin-top: 20px;
+    }
+
+    .nav-button {
+      background-color: #6c757d;
+      color: white;
+      padding: 12px 25px;
+      margin: 10px;
+      border: none;
+      border-radius: 12px;
+      font-size: 1.1em;
+      cursor: pointer;
+      transition: background-color 0.3s, transform 0.2s;
+    }
+
+    .nav-button:hover {
+      background-color: #adb5bd;
+      transform: scale(1.05);
+    }
+
+    .nav-button.active {
+      background-color: #ffc107;
+      color: black;
+    }
+
+    .layout {
+      margin-top: 30px;
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+    }
+
+    .section {
+      display: none;
+      background-color: #222;
+      color: white;
+      padding: 20px;
+      margin: 20px auto;
+      border-radius: 12px;
+      max-width: 800px;
+      box-shadow: 0 4px 8px rgba(255, 255, 255, 0.2);
+    }
+
+    .section.active {
+      display: block;
+    }
+
+    footer {
+      margin-top: 30px;
+      font-size: 0.9em;
+      color: #aaa;
+    }
+  </style>
+  <script>
+    function showSection(sectionId) {
+      const sections = document.querySelectorAll('.section');
+      const buttons = document.querySelectorAll('.nav-button');
+
+      // Remove active class from all sections and buttons
+      sections.forEach(section => section.classList.remove('active'));
+      buttons.forEach(button => button.classList.remove('active'));
+
+      // Add active class to the selected section and button
+      document.getElementById(sectionId).classList.add('active');
+      document.querySelector(`button[onclick="showSection('${sectionId}')"]`).classList.add('active');
+    }
+  </script>
+</head>
+<body>
+  <header>
+    <img src="Gemini_Generated_Image_i9n7tyi9n7tyi9n7.jpeg" alt="Gemini Generated Image">
+    <h1>🌟 Arham the Cow 🌟</h1>
+    <h2>The Wisest Animal Ever to be Existed</h2>
+  </header>
+
+  <nav>
+    <button class="nav-button active" onclick="showSection('main')">Main</button>
+    <button class="nav-button" onclick="showSection('earlyLife')">Early Life</button>
+    <button class="nav-button" onclick="showSection('firstAdventure')">First Adventure</button>
+    <button class="nav-button" onclick="showSection('wisdom')">Wisdom</button>
+    <button class="nav-button" onclick="showSection('inspiredAnimals')">Inspired Animals</button>
+    <button class="nav-button" onclick="showSection('futureVisions')">Future Visions</button>
+    <button class="nav-button" onclick="showSection('meetTheTeam')">Meet the Team</button>
+    <button class="nav-button" onclick="showSection('books')">Books</button>
+    <button class="nav-button" onclick="showSection('questionsOrComments')">Questions or Comments?</button>
+  </nav>
+
+  <div class="layout">
+    <!-- Main Section -->
+    <div id="main" class="section active">
+      <h2>Welcome to the World of Arham the Cow</h2>
+      <p>Arham the Cow is no ordinary animal. Known for his unmatched wisdom and ability to solve problems that even humans struggle with, Arham is a symbol of intelligence and kindness. His journey began in a peaceful meadow, where he quickly gained recognition for his ability to guide other animals and bring harmony to the farm. Arham's wisdom has inspired countless animals and humans alike, making him a legend in his own right. Join us as we explore the incredible life of Arham the Cow, the wisest animal in the universe!</p>
+    </div>
+
+    <!-- Early Life Section -->
+    <div id="earlyLife" class="section">
+      <h2>Early Life</h2>
+      <p>Arham was born in a serene meadow surrounded by lush greenery and a gentle stream. From a young age, he displayed remarkable intelligence, often solving problems for the other animals on the farm. Whether it was finding the best grazing spots or helping the farmer with his daily tasks, Arham's early life was filled with moments that showcased his wisdom and kindness.</p>
+    </div>
+
+    <!-- First Adventure Section -->
+    <div id="firstAdventure" class="section">
+      <h2>First Adventure</h2>
+      <p>Arham's first adventure took him beyond the farm to a nearby forest. There, he encountered a group of lost animals struggling to find their way home. Using his keen sense of direction and problem-solving skills, Arham guided them back to safety. This adventure marked the beginning of his journey as a leader and protector of all animals.</p>
+    </div>
+
+    <!-- Wisdom Section -->
+    <div id="wisdom" class="section">
+      <h2>Wisdom</h2>
+      <p>Arham's wisdom is unparalleled. He has the ability to understand complex situations and provide solutions that benefit everyone involved. Whether it's resolving conflicts between animals or helping humans make better decisions, Arham's wisdom has earned him the title of "The Wisest Animal in the Universe."</p>
+    </div>
+
+    <!-- Inspired Animals Section -->
+    <div id="inspiredAnimals" class="section">
+      <h2>Inspired Animals</h2>
+      <p>Arham's actions have inspired countless animals to strive for greatness. From the smallest birds to the largest elephants, animals across the world look up to Arham as a role model. His message is simple: "Kindness and intelligence can change the world."</p>
+    </div>
+
+    <!-- Future Visions Section -->
+    <div id="futureVisions" class="section">
+      <h2>Future Visions</h2>
+      <p>Arham envisions a future where humans and animals coexist in harmony. He dreams of a world where kindness and understanding are the foundation of every relationship. Through his actions and teachings, Arham is working towards making this vision a reality.</p>
+    </div>
+
+    <!-- Books Section -->
+    <div id="books" class="section">
+      <h2>Books</h2>
+      <p>Arham the Cow's adventures and wisdom have been captured in a series of books that inspire readers of all ages. These books not only tell the story of Arham but also impart valuable lessons about kindness, intelligence, and the importance of helping others.</p>
+      <h3>All these books have not been released yet, but will be released soon!</h3>
+      <ul>
+        <li><strong>Book One -> Arham the Cow: The Cow Revolutionary War</strong> - The story of getting his army of animals ready to fight the evil clock, Pradyun, and... ATTACK!</li>
+        <li><strong>Book Two -> Coming Soon!</strong> - Stay tuned for the next adventure of Arham the Cow!</li>
+        <li><strong>Book Three -> Coming Soon!</strong> - More adventures and wisdom from Arham the Cow!</li>
+        <li><strong>We will be making many more books in the future!</strong>We hope you suppport us!</li>
+      </ul>
+    </div>
+
+    <!-- Meet the Team Section -->
+    <div id="meetTheTeam" class="section">
+      <h2>🐾✨ Heroes of Arham the Cow ✨🐾</h2>
+      <ul>
+        <li>🐮 <strong>Arham the Cow – Defender of Time</strong><br>The legendary hero at the center of it all. Arham may look like an ordinary cow, but he’s anything but! With unmatched bravery, heroic moo-power, and a heart full of courage, Arham leads the charge against evil. His hooves stomp justice into the ground, and his battle cry—"Moo for Freedom!"—echoes across battlefields.</li>
+        <li>🐿️ <strong>Syed the Chipmunk – The Brain of the Team</strong><br>A tech genius and quick thinker, Syed creates gadgets that save the day and plans that outsmart the enemy. He might be small, but he’s got the biggest brain in the crew.</li>
+        <li>🐯 <strong>Arjun the Tiger – The Powerful Protector</strong><br>With claws that slash and strength that stuns, Arjun is the team’s main muscle. He charges through battles with a roar and stands like a wall to protect his friends.</li>
+        <li>🐱 <strong>Wali the Cat – The Stealthy Shadow</strong><br>Fast, nimble, and full of clever tricks, Wali sneaks through enemy lines like a whisper. Don’t blink—or you’ll miss him taking down five penguins before breakfast.</li>
+        <li>🦢 <strong>Jacob the Goose – The Sky Scout</strong><br>Flying high above the action, Jacob scouts the enemy from the clouds and dives into danger when needed. Honks loudly. Fights proudly.</li>
+        <li>🦖 <strong>Avyukt the T. rex – The Battlefield Beast</strong><br>The ultimate tank of the team. Avyukt smashes enemies, stomps through walls, and lets out roars so loud they make clocks tick backward. When he's on the field, enemies run.</li>
+        <li>🍌 <strong>Vivaan the Banana – The Silliest Weapon Ever</strong><br>He’s literally a banana—but don’t laugh! Vivaan’s Banana Gun can blast penguins off the battlefield. His jokes may be silly, but his power is serious.</li>
+        <li>🐊 <strong>Nevaan the Alligator – The Tail Whip Warrior</strong><br>Crushing armor with his jaw and spinning through enemies with his tail, Nevaan brings swamp fury to the battlefield. He’s calm… until he’s not.</li>
+        <li>🐐 <strong>Camilo the Goat – The Tactical Climber</strong><br>Always perched on the high ground, Camilo keeps an eye on the fight and leaps into battle when needed. He’s clever, calm, and surprisingly fierce.</li>
+        <li>🦌 <strong>Aavish the Elk – The Noble Antler Knight</strong><br>Graceful yet powerful, Aavish uses his antlers to charge through enemy lines. He’s wise, kind, and as strong as he is majestic.</li>
+      </ul>
+      <h3>🔥 Villain 🔥</h3>
+      <ul>
+        <li>⏰ <strong>Pradyun the Clock – The Evil Time Master</strong><br>Once an ordinary clock, now a terrifying time-controlling villain. With glowing gears, a cold voice, and an army of penguins, Pradyun stops time and tries to stop the heroes—forever.</li>
+        <li>🐧 <strong>The Penguin Army – March of the Minions</strong><br>Thousands of armored penguins controlled by Pradyun. They march, they waddle, they attack on command. Some carry ice-blasters. Some throw snowballs. All are loyal to their ticking master.</li>
+      </ul>
+    </div>
+
+    <!-- Questions or Comments Section -->
+    <div id="questionsOrComments" class="section">
+      <h2>Questions or Comments?</h2>
+      <p>For any questions or comments, email us at arhamthecowhelp@gmail.com.</p>
+    </div>
+  </div>
+
+  <footer>
+    <p>© 2025 Arham the Cow Universe.</p>
+  </footer>
+</body>
+</html>
