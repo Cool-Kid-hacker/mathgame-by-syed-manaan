@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Car Racing Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            background-color: #333;
+            font-family: Arial, sans-serif;
+            padding: 0.5cm;
+            overflow: hidden; /* Prevent all scrolling */
+        }
+        .game-container {
+            position: relative;
+            background-color: #222;
+            padding: 0.3cm;
+            border-radius: 8px;
+            transform: scale(0.85);
+            transform-origin: top center;
+        }
+        canvas {
+            border: 2px solid #666;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const width = 1000;
+        const height = 800;
+        canvas.width = width;
+        canvas.height = height;
+
+        // Colors
+        const colors = {
+            white: '#FFFFFF',
+            black: '#000000',
+            gray: '#A9A9A9',
+            green: '#00FF00',
+            blue: '#0000FF',
+            pink: '#FF69B4',
+            yellow: '#FFFF00',
+            orange: '#FFA500',
+            red: '#FF0000',
+            explosionColor: '#FF4500',
+            roadColor: '#282828',
+            roadStripeColor: '#646464',
+            centerLineColor: '#DCDCDC',
+            skyColor: '#22784'
+        };
+
+        // Game state
+        let gameState = 'start'; // start, carSelect, mathQuestion, countdown, playing, gameOver
+        let playerColor = null;
+        let highestScore = 0;
+        let score = 0;
+        let laneOffset = 0;
+        let particles = [];
+        let enemies = [];
+        let currentEnemySpeed = 7;
+        let countdownNumber = 3;
+        let countdownTimer = 0;
+        let mouseX = 0;
+        let mouseY = 0;
+        let mouseClicked = false;
+        let keys = {};
+        let showingHighScoreLine = false; // Track if we're showing the high score line
+        let scoreBlinkTimer = 0; // Timer for blinking score
+        let scoreBlinkVisible = true; // Track if score is visible during blink
+        let highScoreBlinkTimer = 0; // Timer for blinking high score
+        let highScoreBlinkVisible = true; // Track if high score is visible during blink
+
+        // Player settings
+        const playerWidth = 50;
+        const playerHeight = 80;
+        const playerSpeed = 5;
+        let playerX = 0;
+        let playerY = 0;
+
+        // Enemy settings
+        const enemyWidth = 50;
+        const enemyHeight = 80;
+        const baseEnemySpeed = 7;
+        const numEnemies = 7;
+
+        const highScoreStorageKey = 'carGameSinglePlayerHighScore';
+
+        function loadHighScore() {
+            const stored = localStorage.getItem(highScoreStorageKey);
+            const parsed = Number.parseInt(stored, 10);
+            highestScore = Number.isFinite(parsed) ? parsed : 0;
+        }
+
+        function saveHighScore() {
+            localStorage.setItem(highScoreStorageKey, String(highestScore));
+        }
+
+        loadHighScore();
+
+        // Math question system
+        let mathQuestionData = null;
+        let mathQuestionState = 'none'; // 'none', 'showing', 'answered'
+        let nextQuestionScore = 25; // Score at which to show next question
+        let questionIndex = 0; // Track which question to show next
+        let selectedWrongChoice = null; // Track wrong choice for retry feedback
+
+        // Predefined math questions
+        const mathQuestions = [
+            {
+                question: "What is 2/3 × 4/5?",
+                correct: "8/15",
+                choices: ["8/15", "2/5", "4/7", "3/8"]
+            },
+            {
+                question: "What is 5/1 × 5/8?",
+                correct: "25/8",
+                choices: ["25/8", "5/4", "10/3", "15/7"]
+            },
+            {
+                question: "What is 1/3 × 1/2?",
+                correct: "1/6",
+                choices: ["1/6", "1/4", "2/5", "3/7"]
+            },
+            {
+                question: "What is 5/6 × 1/7?",
+                correct: "5/42",
+                choices: ["5/42", "1/6", "5/12", "2/9"]
+            },
+            {
+                question: "What is 4/10 × 3/8?",
+                correct: "12/80",
+                choices: ["12/80", "3/5", "4/9", "6/11"]
+            },
+            {
+                question: "What is 1/2 × 1/4?",
+                correct: "1/8",
+                choices: ["1/8", "1/3", "2/7", "3/10"]
+            },
+            {
+                question: "What is 3/7 × 4/9?",
+                correct: "12/63",
+                choices: ["12/63", "4/7", "3/9", "7/12"]
+            },
+            {
+                question: "What is 3/9 × 1/10?",
+                correct: "3/90",
+                choices: ["3/90", "1/3", "3/7", "2/11"]
+            },
+            {
+                question: "What is 9/12 × 2/7?",
+                correct: "18/84",
+                choices: ["18/84", "3/7", "9/14", "4/9"]
+            }
+        ];
+
+        // Generate math question from predefined list
+        function generateFractionQuestion() {
+            // Get the next question in rotation
+            const questionData = mathQuestions[questionIndex];
+            questionIndex = (questionIndex + 1) % mathQuestions.length;
+            
+            return questionData;
+        }
+
+        // Draw math question screen
+        function drawMathQuestionScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            
+            // Question text
+            showText(mathQuestionData.question, colors.black, width / 2 - 200, height / 4, 40);
+            
+            // Choices (2x2 grid)
+            const choiceButtons = [];
+            const choiceY = height / 2;
+            for (let i = 0; i < 4; i++) {
+                const row = Math.floor(i / 2);
+                const col = i % 2;
+                const x = width / 4 + col * (width / 2 + 20);
+                const y = choiceY + row * 100;
+                
+                // Draw choice button
+                const buttonRect = { x: x, y: y, w: 200, h: 60 };
+                ctx.fillStyle = colors.white;
+                ctx.fillRect(x, y, 200, 60);
+                ctx.strokeStyle = colors.black;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, 200, 60);
+                
+                // Choice text
+                showText(mathQuestionData.choices[i], colors.black, x + 20, y + 20, 30);
+                choiceButtons.push({ rect: buttonRect, choice: mathQuestionData.choices[i] });
+            }
+            
+            // Show X on wrong choice if one was selected
+            if (selectedWrongChoice) {
+                for (const button of choiceButtons) {
+                    if (button.choice === selectedWrongChoice) {
+                        // Draw X on wrong choice
+                        ctx.strokeStyle = colors.red;
+                        ctx.lineWidth = 5;
+                        ctx.beginPath();
+                        ctx.moveTo(button.rect.x + 20, button.rect.y + 20);
+                        ctx.lineTo(button.rect.x + button.rect.w - 20, button.rect.y + button.rect.h - 20);
+                        ctx.moveTo(button.rect.x + button.rect.w - 20, button.rect.y + 20);
+                        ctx.lineTo(button.rect.x + 20, button.rect.y + button.rect.h - 20);
+                        ctx.stroke();
+                        break;
+                    }
+                }
+            }
+            
+            return choiceButtons;
+        }
+        // Car selection options
+        const carSelectionOptions = [
+            { color: colors.blue, name: 'Blue' },
+            { color: colors.pink, name: 'Pink' },
+            { color: colors.yellow, name: 'Yellow' },
+            { color: colors.orange, name: 'Orange' }
+        ];
+
+        // Draw car function
+        function drawCar(x, y, color, w, h, isEnemy = false) {
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath();
+            ctx.ellipse(x + w/2, y + h - h * 0.07, w/2 + 5, h * 0.07, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Body
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, Math.max(4, w * 0.12));
+            ctx.fill();
+
+            // Windshield
+            ctx.fillStyle = '#C8E6FF';
+            ctx.beginPath();
+            ctx.roundRect(x + w/6, y + h/8, w * 2/3, h/3, Math.max(2, w * 0.06));
+            ctx.fill();
+
+            // Wheels
+            const wheelR = Math.max(4, Math.min(w, h) * 0.12);
+            ctx.fillStyle = '#141414';
+            ctx.beginPath();
+            ctx.arc(x + w * 0.22, y + h - wheelR/2, wheelR, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(x + w * 0.78, y + h - wheelR/2, wheelR, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Roof highlight
+            ctx.strokeStyle = colors.white;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x + Math.max(4, w * 0.12), y + Math.max(4, h * 0.08));
+            ctx.lineTo(x + w - Math.max(4, w * 0.12), y + Math.max(4, h * 0.08));
+            ctx.stroke();
+
+            // Headlights for enemy
+            if (isEnemy) {
+                const hlR = Math.max(3, Math.min(w, h) * 0.08);
+                ctx.fillStyle = '#FFFFC8';
+                ctx.beginPath();
+                ctx.arc(x + w * 0.16, y + h * 0.15, hlR, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(x + w * 0.84, y + h * 0.15, hlR, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // Show text function
+        function showText(msg, color, x, y, fontSize = 40) {
+            ctx.font = `${fontSize}px Arial`;
+            ctx.fillStyle = color;
+            ctx.textBaseline = 'top';
+            ctx.fillText(msg, x, y);
+        }
+
+        // Draw button helper
+        function drawButton(x, y, w, h, color, text, textColor = colors.black, fontSize = 40) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, w, h);
+            showText(text, textColor, x + 10, y + 10, fontSize);
+            return { x, y, w, h };
+        }
+
+        // Check if point is in rectangle
+        function pointInRect(px, py, rect) {
+            return px >= rect.x && px <= rect.x + rect.w && py >= rect.y && py <= rect.y + rect.h;
+        }
+
+        // Reset enemies
+        function resetEnemies() {
+            enemies = [];
+            for (let i = 0; i < numEnemies; i++) {
+                enemies.push({
+                    x: Math.random() * (width - enemyWidth),
+                    y: Math.random() * -800 - 100,
+                    swerve: Math.random() < 0.5 ? -2 : 2
+                });
+            }
+        }
+
+        // Explosion effect (simplified for browser)
+        let explosionParticles = [];
+        function createExplosion(x, y) {
+            for (let i = 0; i < 30; i++) {
+                explosionParticles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 10,
+                    vy: (Math.random() - 0.5) * 10,
+                    life: 30 + Math.random() * 20,
+                    maxLife: 50,
+                    radius: 3 + Math.random() * 5,
+                    color: colors.explosionColor
+                });
+            }
+        }
+
+        // Update explosion particles
+        function updateExplosions() {
+            for (let i = explosionParticles.length - 1; i >= 0; i--) {
+                const p = explosionParticles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life--;
+                p.radius *= 0.98;
+                if (p.life <= 0) {
+                    explosionParticles.splice(i, 1);
+                }
+            }
+        }
+
+        // Draw explosion particles
+        function drawExplosions() {
+            for (const p of explosionParticles) {
+                const alpha = p.life / p.maxLife;
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // Start Game Screen
+        function drawStartScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            // Center the title text
+            const titleText = 'Dodge The Cars!';
+            ctx.font = '100px Arial';
+            const titleWidth = ctx.measureText(titleText).width;
+            const titleX = (width - titleWidth) / 2;
+            showText(titleText, colors.black, titleX, height / 3, 100);
+            drawButton(width / 3, height / 3 + 200, 300, 50, colors.green, 'Start Game');
+        }
+
+        // Car Selection Screen
+        function drawCarSelectionScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            showText('Select Your Car', colors.black, width / 3, height / 4, 60);
+
+            const backRect = drawButton(20, 20, 120, 50, colors.red, '< Back', colors.white, 24);
+
+            const carButtons = [];
+            const previewW = playerWidth;
+            const previewH = playerHeight;
+            const positions = [
+                { x: width / 5, color: carSelectionOptions[0].color, name: carSelectionOptions[0].name },
+                { x: 2 * width / 5, color: carSelectionOptions[1].color, name: carSelectionOptions[1].name },
+                { x: 3 * width / 5, color: carSelectionOptions[2].color, name: carSelectionOptions[2].name },
+                { x: 4 * width / 5, color: carSelectionOptions[3].color, name: carSelectionOptions[3].name }
+            ];
+
+            for (const pos of positions) {
+                drawCar(pos.x, height / 2, pos.color, previewW, previewH);
+                showText(pos.name, colors.black, pos.x, height / 2 + previewH + 10);
+                carButtons.push({ rect: { x: pos.x, y: height / 2, w: previewW, h: previewH + 30 }, color: pos.color });
+            }
+
+            if (mouseClicked) {
+                if (pointInRect(mouseX, mouseY, backRect)) {
+                    gameState = 'start';
+                    return;
+                }
+                for (const btn of carButtons) {
+                    if (pointInRect(mouseX, mouseY, btn.rect)) {
+                        playerColor = btn.color;
+                        startGame();
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Countdown Screen
+        function drawCountdownScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            if (countdownNumber > 0) {
+                showText(countdownNumber.toString(), colors.black, width / 2 - 20, height / 2 - 20, 100);
+            } else {
+                showText("GO!", colors.green, width / 2 - 30, height / 2 - 20, 100);
+            }
+        }
+
+        // Draw road and background
+        function drawRoad() {
+            // Green grass on sides
+            ctx.fillStyle = '#1a6b1a'; // Darker green
+            ctx.fillRect(0, 0, width, height);
+
+            // Road
+            const roadLeft = width * 0.15;
+            const roadWidth = width * 0.7;
+            ctx.fillStyle = colors.roadColor;
+            ctx.fillRect(roadLeft, 0, roadWidth, height);
+
+            // Road side stripes
+            ctx.fillStyle = colors.roadStripeColor;
+            ctx.fillRect(roadLeft - 10, 0, 10, height);
+            ctx.fillRect(roadLeft + roadWidth, 0, 10, height);
+
+            // Moving dashed center line
+            const dashH = 40;
+            const gap = 20;
+            laneOffset = (laneOffset + 8) % (dashH + gap);
+            const cx = width / 2;
+            ctx.fillStyle = colors.centerLineColor;
+            for (let i = -1; i < height / (dashH + gap) + 2; i++) {
+                const dy = i * (dashH + gap) + laneOffset - 100;
+                ctx.fillRect(cx - 5, dy, 10, dashH);
+            }
+
+            // Road texture lines
+            ctx.strokeStyle = '#323232';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < height; i += 60) {
+                ctx.beginPath();
+                ctx.moveTo(roadLeft + 5, i);
+                ctx.lineTo(roadLeft + roadWidth - 5, i);
+                ctx.stroke();
+            }
+        }
+
+        // Game Over Screen
+        function drawGameOverScreen() {
+            ctx.fillStyle = colors.gray;
+            ctx.fillRect(0, 0, width, height);
+            showText('Game Over!', colors.black, width / 3, height / 3, 60);
+            showText(`Your Score: ${score}`, colors.black, width / 3, height / 3 + 60);
+            showText(`Highest Score: ${highestScore}`, colors.black, width / 3, height / 3 + 120);
+
+            const playAgainRect = drawButton(width / 3, height / 3 + 200, 300, 50, colors.green, 'Play Again');
+            const mainMenuRect = drawButton(width / 3, height / 3 + 270, 300, 50, colors.red, 'Main Menu');
+
+            if (mouseClicked) {
+                if (pointInRect(mouseX, mouseY, playAgainRect)) {
+                    startGame();
+                }
+                if (pointInRect(mouseX, mouseY, mainMenuRect)) {
+                    gameState = 'start';
+                }
+            }
+        }
+
+        // Start game
+        function startGame() {
+            playerX = width / 2 - playerWidth / 2;
+            playerY = height - playerHeight - 10;
+            score = 0;
+            currentEnemySpeed = baseEnemySpeed;
+            particles = [];
+            explosionParticles = [];
+            resetEnemies();
+            nextQuestionScore = 25; // Reset next question score
+            selectedWrongChoice = null; // Clear any previous wrong choice
+            showingHighScoreLine = false;
+            // Show math question at start of each round
+            showMathQuestion();
+        }
+
+        // Show math question
+        function showMathQuestion() {
+            mathQuestionData = generateFractionQuestion();
+            mathQuestionState = 'showing';
+            gameState = 'mathQuestion';
+        }
+
+        // Update game
+        function updateGame() {
+            // Move player
+            if (keys['ArrowLeft'] && playerX > 0) {
+                playerX -= playerSpeed;
+            }
+            if (keys['ArrowRight'] && playerX < width - playerWidth) {
+                playerX += playerSpeed;
+            }
+            if (keys['ArrowUp'] && playerY > 0) {
+                playerY -= playerSpeed;
+            }
+            if (keys['ArrowDown'] && playerY < height - playerHeight) {
+                playerY += playerSpeed;
+            }
+
+            // Blinking timers
+            scoreBlinkTimer += 16; // ~60fps
+            if (scoreBlinkTimer > 500) { // Blink every 500ms
+                scoreBlinkVisible = !scoreBlinkVisible;
+                scoreBlinkTimer = 0;
+            }
+
+            highScoreBlinkTimer += 16;
+            if (highScoreBlinkTimer > 400) { // Blink every 400ms
+                highScoreBlinkVisible = !highScoreBlinkVisible;
+                highScoreBlinkTimer = 0;
+            }
+
+            // Move enemies
+            for (let enemy of enemies) {
+                enemy.y += currentEnemySpeed;
+                enemy.x += enemy.swerve;
+
+                // Swerve at edges
+                if (enemy.x <= 0 || enemy.x >= width - enemyWidth) {
+                    enemy.swerve *= -1;
+                }
+
+                // Reset enemy when off screen
+                if (enemy.y > height) {
+                    enemy.y = Math.random() * -800 - 100;
+                    enemy.x = Math.random() * (width - enemyWidth);
+                    enemy.swerve = Math.random() < 0.5 ? -2 : 2;
+                    score++;
+                    // Increase speed every 15 cars passed
+                    if (score % 15 === 0) {
+                        currentEnemySpeed += 0.1;
+                    }
+                    
+                    // Check if we need to show a math question (every 25 points)
+                    if (score > 0 && score >= nextQuestionScore) {
+                        showMathQuestion();
+                        nextQuestionScore += 25; // Set next threshold
+                        return; // Exit update to show question
+                    }
+                    
+                    // Check if we're about to break the high score
+                    if (score > 0 && score === highestScore) {
+                        showingHighScoreLine = true;
+                    }
+                }
+
+                // Collision detection
+                if (playerY < enemy.y + enemyHeight &&
+                    playerY + playerHeight > enemy.y &&
+                    playerX < enemy.x + enemyWidth &&
+                    playerX + playerWidth > enemy.x) {
+                    createExplosion(playerX + playerWidth / 2, playerY + playerHeight / 2);
+                    
+                    if (score > highestScore) {
+                        highestScore = score;
+                        saveHighScore();
+                    }
+                    
+                    gameState = 'gameOver';
+                    return;
+                }
+            }
+
+            // Particle exhaust
+            if (keys['ArrowDown'] || keys['ArrowUp'] || keys['ArrowLeft'] || keys['ArrowRight']) {
+                const px = playerX + playerWidth / 2;
+                const py = playerY + playerHeight;
+                particles.push({
+                    x: px + (Math.random() - 0.5) * 12,
+                    y: py,
+                    r: 4 + Math.random() * 4,
+                    life: 30
+                });
+            }
+
+            // Update particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.y += 2;
+                p.x += (Math.random() - 0.5);
+                p.life--;
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+
+        // Draw game
+        function drawGame() {
+            drawRoad();
+
+            // Draw enemies
+            for (let enemy of enemies) {
+                drawCar(enemy.x, enemy.y, '#B40000', enemyWidth, enemyHeight, true);
+            }
+
+            // Draw player
+            drawCar(playerX, playerY, playerColor, playerWidth, playerHeight);
+
+            // Draw particles
+            for (const p of particles) {
+                const alpha = p.life / 30;
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = '#C8C8C8';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+
+            // Draw explosions
+            drawExplosions();
+
+            // Show score with blinking effect when approaching high score
+            let scoreColor = colors.white;
+            if (showingHighScoreLine || score > highestScore) {
+                scoreColor = scoreBlinkVisible ? colors.yellow : colors.white;
+            }
+            showText(`Score: ${score}`, scoreColor, 10, 10);
+
+            // Show high score with blinking
+            let yourHighColor = colors.white;
+            if (highestScore > 0 && (showingHighScoreLine || score >= highestScore)) {
+                yourHighColor = highScoreBlinkVisible ? colors.yellow : colors.white;
+            }
+            showText(`High Score: ${highestScore}`, yourHighColor, width - 260, 10);
+        }
+
+        // Main game loop
+        let lastTime = 0;
+
+        function gameLoop(timestamp) {
+            // Initial setup for game data
+            const deltaTime = timestamp - lastTime;
+            lastTime = timestamp;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+
+            // Handle game states
+            switch (gameState) {
+                case 'start':
+                    drawStartScreen();
+                    if (mouseClicked && pointInRect(mouseX, mouseY, { x: width / 3, y: height / 3 + 200, w: 300, h: 50 })) { // Start Game button
+                        gameState = 'carSelect';
+                    }
+                    break;
+
+                case 'carSelect':
+                    drawCarSelectionScreen();
+                    break;
+
+                case 'mathQuestion':
+                    // Draw math question and handle clicks
+                    const choiceButtons = drawMathQuestionScreen();
+                    if (mouseClicked) {
+                        for (const btn of choiceButtons) {
+                            if (pointInRect(mouseX, mouseY, btn.rect)) {
+                                if (btn.choice === mathQuestionData.correct) {
+                                    // Correct answer - show green outline and continue
+                                    selectedWrongChoice = null; // Clear any previous wrong choice
+                                    // Show green outline briefly
+                                    ctx.strokeStyle = colors.green;
+                                    ctx.lineWidth = 4;
+                                    ctx.strokeRect(btn.rect.x, btn.rect.y, btn.rect.w, btn.rect.h);
+                                    
+                                    // Continue to countdown after a brief delay
+                                    setTimeout(() => {
+                                        if (gameState === 'mathQuestion') {
+                                            gameState = 'countdown';
+                                            countdownNumber = 3;
+                                            countdownTimer = 0;
+                                        }
+                                    }, 500);
+                                } else {
+                                    // Wrong answer - mark it and let them try again
+                                    selectedWrongChoice = btn.choice;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    break;
+
+                case 'countdown':
+                    countdownTimer += deltaTime;
+                    if (countdownTimer >= 1000) {
+                        countdownTimer = 0;
+                        if (countdownNumber > 0) {
+                            countdownNumber--;
+                        } else {
+                            // GO! has been shown, now start the game
+                            gameState = 'playing';
+                        }
+                    }
+                    drawCountdownScreen();
+                    break;
+
+                case 'playing':
+                    updateGame();
+                    drawGame();
+                    break;
+
+                case 'gameOver':
+                    updateExplosions();
+                    drawGame();
+                    drawExplosions();
+                    drawGameOverScreen();
+                    break;
+
+            }
+
+            // Reset mouse click
+            mouseClicked = false;
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Event listeners
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = (e.clientX - rect.left) * (width / rect.width);
+            mouseY = (e.clientY - rect.top) * (height / rect.height);
+        });
+
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = (e.clientX - rect.left) * (width / rect.width);
+            mouseY = (e.clientY - rect.top) * (height / rect.height);
+            mouseClicked = true;
+        });
+
+        // Prevent all scrolling on the page
+        document.addEventListener('keydown', (e) => {
+            // Prevent default scrolling behavior for all keys that might cause scrolling
+            const scrollKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'PageUp', 'PageDown', 'Home', 'End', 'Tab'];
+            if (scrollKeys.includes(e.key)) {
+                e.preventDefault();
+            }
+
+            keys[e.key] = true;
+
+            if (gameState === 'gameOver') {
+                if (e.key === 'Enter') {
+                    startGame();
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+
+        // Polyfill for roundRect if not supported
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, radii) {
+                const r = typeof radii === 'number' ? radii : radii[0] || 0;
+                this.moveTo(x + r, y);
+                this.lineTo(x + w - r, y);
+                this.quadraticCurveTo(x + w, y, x + w, y + r);
+                this.lineTo(x + w, y + h - r);
+                this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+                this.lineTo(x + r, y + h);
+                this.quadraticCurveTo(x, y + h, x, y + h - r);
+                this.lineTo(x, y + r);
+                this.quadraticCurveTo(x, y, x + r, y);
+                this.closePath();
+            };
+        }
+
+        // Start the game loop
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
